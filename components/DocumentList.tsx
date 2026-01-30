@@ -230,12 +230,12 @@ const DocumentList: React.FC<DocumentListProps> = ({
             </div>
 
             {/* Actions */}
-            <div className="flex gap-2 pt-4 border-t border-slate-50 mt-auto">
+            <div className="flex gap-2 pt-4 border-t border-slate-100 mt-auto">
               {(doc.status === ProcessingStatus.PENDING || doc.status === ProcessingStatus.ERROR || doc.status === ProcessingStatus.SKIPPED) && (
                 <button
                   onClick={() => onAnalyze(doc.id)}
                   disabled={doc.status === ProcessingStatus.FILTERING}
-                  className="flex-1 flex items-center justify-center gap-2 text-xs font-semibold bg-white border border-slate-300 text-slate-700 py-2.5 rounded-lg hover:bg-slate-50 hover:text-blue-600 hover:border-blue-200 transition-colors"
+                  className="flex-1 flex items-center justify-center gap-2 text-sm font-semibold bg-white border border-slate-300 text-slate-700 py-3 rounded-lg hover:bg-slate-50 hover:text-blue-600 hover:border-blue-200 transition-all shadow-sm"
                 >
                   <PlayCircle size={14} /> 
                   {doc.status === ProcessingStatus.SKIPPED 
@@ -255,7 +255,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
               {doc.status === ProcessingStatus.SUCCESS && (
                 <button
                     onClick={() => onView(doc.id)}
-                    className="flex-1 flex items-center justify-center gap-2 text-xs font-semibold bg-blue-600 text-white py-2.5 rounded-lg hover:bg-blue-700 shadow-sm shadow-blue-200 transition-all"
+                    className="flex-1 flex items-center justify-center gap-2 text-sm font-semibold bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 shadow-md shadow-blue-200 transition-all"
                 >
                     <Eye size={14} />
                     {language === 'vi' ? 'Xem Báo cáo' : 'View Report'}

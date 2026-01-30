@@ -79,10 +79,17 @@ const App: React.FC = () => {
         ? { ...d, status: ProcessingStatus.SUCCESS, analysis: result, folderIds: matchedFolderIds } 
         : d
       ));
-    } catch (error) {
+    } catch (error: any) {
+      const friendly =
+        (error?.message?.toLowerCase?.()?.includes('quota') || error?.code === 429)
+          ? (language === 'vi'
+              ? 'Hết hạn mức/Quota. Hệ thống sẽ thử lại với key khác hoặc hãy thử lại sau.'
+              : 'Quota exceeded. System will rotate keys or retry later.')
+          : (error?.message || (language === 'vi' ? 'Lỗi xử lý.' : 'Processing error.'));
+
       setDocuments(prev => prev.map(d => 
         d.id === docId 
-        ? { ...d, status: ProcessingStatus.ERROR, errorMessage: "Phân tích thất bại (Quota/Lỗi mạng)." } 
+        ? { ...d, status: ProcessingStatus.ERROR, errorMessage: friendly } 
         : d
       ));
     }
@@ -136,10 +143,17 @@ const App: React.FC = () => {
                     : d
                   ));
 
-              } catch (error) {
+              } catch (error: any) {
+                   const friendly =
+                    (error?.message?.toLowerCase?.()?.includes('quota') || error?.code === 429)
+                      ? (language === 'vi'
+                          ? 'Hết hạn mức/Quota. Hệ thống sẽ thử lại với key khác hoặc hãy thử lại sau.'
+                          : 'Quota exceeded. System will rotate keys or retry later.')
+                      : (error?.message || (language === 'vi' ? 'Lỗi xử lý.' : 'Processing error.'));
+
                    setDocuments(prev => prev.map(d => 
                     d.id === doc.id 
-                    ? { ...d, status: ProcessingStatus.ERROR, errorMessage: "Lỗi xử lý." } 
+                    ? { ...d, status: ProcessingStatus.ERROR, errorMessage: friendly } 
                     : d
                   ));
               }
