@@ -137,7 +137,9 @@ class GeminiProvider implements LLMProvider {
         lastError = error;
         const shouldFailover = isQuotaLikeError(error);
         console.warn(
-          `[Gemini] error with key index ${this.keyIndex}: ${error?.message || error}`
+          `[Gemini] key #${this.keyIndex + 1}/${this.keys.length} error: ${
+            error?.message || error
+          }`
         );
 
         if (shouldFailover) {
@@ -296,6 +298,7 @@ const generateContentWithFallback = async (request: LLMRequest): Promise<string>
   }
 
   let lastError: any;
+  const traces: string[] = [];
   for (const provider of providers) {
     try {
       const text = await provider.generate(request);
@@ -303,10 +306,16 @@ const generateContentWithFallback = async (request: LLMRequest): Promise<string>
       return text;
     } catch (error) {
       lastError = error;
+      const msg =
+        typeof error?.message === "string"
+          ? error.message
+          : JSON.stringify(error);
+      traces.push(`${provider.name}: ${msg}`);
       console.warn(`[LLM Router] ${provider.name} failed:`, error);
     }
   }
-  throw lastError || new Error("All providers failed.");
+  const traceMsg = traces.length ? ` Chain: ${traces.join(" | ")}` : "";
+  throw lastError || new Error("All providers failed." + traceMsg);
 };
 
 // Check Relevance (Smart Filter)

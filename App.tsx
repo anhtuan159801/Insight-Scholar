@@ -80,18 +80,20 @@ const App: React.FC = () => {
         : d
       ));
     } catch (error: any) {
-      const friendly =
-        (error?.message?.toLowerCase?.()?.includes('quota') || error?.code === 429)
-          ? (language === 'vi'
-              ? 'Hết hạn mức/Quota. Hệ thống sẽ thử lại với key khác hoặc hãy thử lại sau.'
-              : 'Quota exceeded. System will rotate keys or retry later.')
-          : (error?.message || (language === 'vi' ? 'Lỗi xử lý.' : 'Processing error.'));
+      const baseMsg = error?.message || '';
+      const isQuota = (error?.message?.toLowerCase?.()?.includes('quota') || error?.code === 429);
+      const friendly = isQuota
+        ? (language === 'vi'
+            ? 'Hết hạn mức/Quota. Đã xoay vòng key; thử lại sau ít phút.'
+            : 'Quota exceeded. Keys rotated; please retry in a few minutes.')
+        : (baseMsg || (language === 'vi' ? 'Lỗi xử lý.' : 'Processing error.'));
 
       setDocuments(prev => prev.map(d => 
         d.id === docId 
         ? { ...d, status: ProcessingStatus.ERROR, errorMessage: friendly } 
         : d
       ));
+      if (baseMsg) console.error('[LLM Error]', baseMsg);
     }
   };
 
@@ -144,18 +146,20 @@ const App: React.FC = () => {
                   ));
 
               } catch (error: any) {
-                   const friendly =
-                    (error?.message?.toLowerCase?.()?.includes('quota') || error?.code === 429)
+                   const baseMsg = error?.message || '';
+                   const isQuota = (error?.message?.toLowerCase?.()?.includes('quota') || error?.code === 429);
+                   const friendly = isQuota
                       ? (language === 'vi'
-                          ? 'Hết hạn mức/Quota. Hệ thống sẽ thử lại với key khác hoặc hãy thử lại sau.'
-                          : 'Quota exceeded. System will rotate keys or retry later.')
-                      : (error?.message || (language === 'vi' ? 'Lỗi xử lý.' : 'Processing error.'));
+                          ? 'Hết hạn mức/Quota. Đã xoay vòng key; thử lại sau ít phút.'
+                          : 'Quota exceeded. Keys rotated; please retry in a few minutes.')
+                      : (baseMsg || (language === 'vi' ? 'Lỗi xử lý.' : 'Processing error.'));
 
                    setDocuments(prev => prev.map(d => 
                     d.id === doc.id 
                     ? { ...d, status: ProcessingStatus.ERROR, errorMessage: friendly } 
                     : d
                   ));
+                  if (baseMsg) console.error('[LLM Error]', baseMsg);
               }
           }));
 
