@@ -26,4 +26,5 @@ RUN npm install -g serve
 COPY --from=build /app/dist ./dist
 
 EXPOSE 4173
-CMD ["serve", "-s", "dist", "-l", "4173"]
+# Respect Render's PORT env; default 4173 for local runs
+CMD ["sh", "-c", "serve -s dist -l ${PORT:-4173}"]
