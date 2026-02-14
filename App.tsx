@@ -9,7 +9,7 @@ import SynthesisMatrixView from './views/SynthesisMatrixView';
 import FolderManager from './components/FolderManager';
 import { Document, ProcessingStatus, Language, ResearchFolder, AnalysisType, AnalysisResult, PolicyAnalysisResult } from './types';
 import { parseFile } from './services/fileParser';
-import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance, setPreferredEngine } from './services/geminiService';
+import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance, setPreferredEngine, setOllamaConfig } from './services/geminiService';
 import { FileText, Book, Target, Menu, Sparkles, Scale } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -29,6 +29,8 @@ const App: React.FC = () => {
   const [analysisMode, setAnalysisMode] = useState<AnalysisType>('ACADEMIC'); 
   const [useSmartFilter, setUseSmartFilter] = useState(true);
   const [engineMode, setEngineMode] = useState<'auto' | 'ollama'>('auto');
+  const [ollamaUrl, setOllamaUrl] = useState<string>(process.env.OLLAMA_BASE_URL || '');
+  const [ollamaModel, setOllamaModel] = useState<string>(process.env.OLLAMA_MODEL || '');
 
   // Handle file upload
   const handleFilesSelected = useCallback(async (files: File[]) => {
@@ -51,6 +53,9 @@ const App: React.FC = () => {
 
   // Handle Individual Analysis
   const handleAnalyze = async (docId: string) => {
+    if (engineMode === 'ollama') {
+      setOllamaConfig(ollamaModel, ollamaUrl);
+    }
     setPreferredEngine(engineMode);
     setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status: ProcessingStatus.ANALYZING, errorMessage: undefined, analysisType: analysisMode } : d));
 
@@ -101,6 +106,9 @@ const App: React.FC = () => {
 
   // Smart Analyze (Bulk Action)
   const handleSmartAnalyze = async (objective: string) => {
+      if (engineMode === 'ollama') {
+        setOllamaConfig(ollamaModel, ollamaUrl);
+      }
       setPreferredEngine(engineMode);
       const pendingDocs = documents.filter(d => d.status === ProcessingStatus.PENDING || d.status === ProcessingStatus.ERROR || d.status === ProcessingStatus.SKIPPED);
       if (pendingDocs.length === 0) return;
@@ -335,6 +343,10 @@ const App: React.FC = () => {
                 setAnalysisMode={setAnalysisMode}
                 engineMode={engineMode}
                 setEngineMode={setEngineMode}
+                ollamaUrl={ollamaUrl}
+                setOllamaUrl={setOllamaUrl}
+                ollamaModel={ollamaModel}
+                setOllamaModel={setOllamaModel}
                 useSmartFilter={useSmartFilter} // Pass state
                 setUseSmartFilter={setUseSmartFilter} // Pass setter
                 onAnalyze={handleAnalyze} 

@@ -11,6 +11,10 @@ interface DocumentListProps {
   setAnalysisMode: (mode: AnalysisType) => void;
   engineMode: 'auto' | 'ollama';
   setEngineMode: (engine: 'auto' | 'ollama') => void;
+  ollamaUrl: string;
+  setOllamaUrl: (url: string) => void;
+  ollamaModel: string;
+  setOllamaModel: (m: string) => void;
   useSmartFilter: boolean; 
   setUseSmartFilter: (enabled: boolean) => void; 
   onAnalyze: (docId: string) => void;
@@ -27,6 +31,10 @@ const DocumentList: React.FC<DocumentListProps> = ({
   setAnalysisMode,
   engineMode,
   setEngineMode,
+  ollamaUrl,
+  setOllamaUrl,
+  ollamaModel,
+  setOllamaModel,
   useSmartFilter,
   setUseSmartFilter,
   onAnalyze, 
@@ -127,6 +135,29 @@ const DocumentList: React.FC<DocumentListProps> = ({
                         Ollama
                     </button>
                 </div>
+
+                {engineMode === 'ollama' && (
+                  <div className="w-full mt-3 grid gap-3 md:grid-cols-2">
+                      <div className="flex flex-col gap-1">
+                          <label className="text-[11px] uppercase font-semibold text-slate-300">Ollama Base URL</label>
+                          <input
+                            value={ollamaUrl}
+                            onChange={(e) => setOllamaUrl(e.target.value)}
+                            placeholder="https://<your-ngrok>.ngrok-free.app"
+                            className="w-full px-3 py-2 rounded-md bg-slate-900/60 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                          />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                          <label className="text-[11px] uppercase font-semibold text-slate-300">Ollama Model</label>
+                          <input
+                            value={ollamaModel}
+                            onChange={(e) => setOllamaModel(e.target.value)}
+                            placeholder="llama3.2"
+                            className="w-full px-3 py-2 rounded-md bg-slate-900/60 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                          />
+                      </div>
+                  </div>
+                )}
              </div>
              
              {useSmartFilter ? (
@@ -148,6 +179,13 @@ const DocumentList: React.FC<DocumentListProps> = ({
                     <List size={16} />
                     {language === 'vi' ? 'Chế độ lọc đã tắt. Hệ thống sẽ phân tích toàn bộ tài liệu chờ.' : 'Filtering disabled. System will analyze all pending documents.'}
                 </div>
+             )}
+             
+             {engineMode === 'ollama' && (
+              <div className="mt-4 text-xs text-amber-200 bg-amber-900/30 border border-amber-800/50 rounded-lg p-3 flex gap-2">
+                <AlertCircle size={16} />
+                <span>Nhập URL cơ sở (ví dụ: https://xxx.ngrok-free.app) và model Ollama để dùng proxy riêng. Hệ thống sẽ tự thêm đuôi /api/chat nếu thiếu.</span>
+              </div>
              )}
          </div>
 

@@ -27,8 +27,8 @@ const OPENROUTER_MODELS: string[] = Object.entries(process.env)
   })
   .map(([, value]) => value as string);
 
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL;
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/api/chat';
+let OLLAMA_MODEL = process.env.OLLAMA_MODEL;
+let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/api/chat';
 
 const hasGemini = Boolean(GEMINI_API_KEY);
 const hasOpenRouter = Boolean(OPENROUTER_API_KEYS.length > 0 && OPENROUTER_MODELS.length > 0);
@@ -40,6 +40,13 @@ const defaultProviderOrder: Provider[] = [
 ];
 let preferredEngine: 'auto' | 'ollama' = 'auto';
 export const setPreferredEngine = (engine: 'auto' | 'ollama') => { preferredEngine = engine; };
+export const setOllamaConfig = (model?: string, baseUrl?: string) => {
+  if (model) OLLAMA_MODEL = model;
+  if (baseUrl) {
+    const trimmed = baseUrl.trim().replace(/\/$/, '');
+    OLLAMA_BASE_URL = trimmed.endsWith('/api/chat') ? trimmed : `${trimmed}/api/chat`;
+  }
+};
 
 // Helper to get API Key safely (Gemini)
 const getApiKey = (): string => {
@@ -150,7 +157,7 @@ const callOpenRouter = async (model: string, prompt: string, schema?: Schema, ke
 
 // Ollama caller (simple chat, no schema enforcement)
 const callOllama = async (prompt: string) => {
-  if (!hasOllama) throw new Error("Ollama is not configured.");
+  if (!OLLAMA_MODEL || !OLLAMA_BASE_URL) throw new Error("Ollama is not configured.");
 
   const res = await fetch(OLLAMA_BASE_URL, {
     method: "POST",
