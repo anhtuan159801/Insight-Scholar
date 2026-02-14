@@ -159,6 +159,11 @@ const callOpenRouter = async (model: string, prompt: string, schema?: Schema, ke
 const callOllama = async (prompt: string, expectJson: boolean, schema?: Schema) => {
   if (!OLLAMA_MODEL || !OLLAMA_BASE_URL) throw new Error("Ollama is not configured.");
 
+  const jsonSchema = schema ? toJsonSchema(schema) : undefined;
+  const userPrompt = expectJson && jsonSchema
+    ? `${prompt}\n\nReturn ONLY valid JSON matching this JSON Schema:\n${JSON.stringify(jsonSchema)}`
+    : prompt;
+
   const systemContent = expectJson
     ? "You are Insight Scholar AI. Return ONLY valid JSON. No markdown, no commentary, no prose outside JSON."
     : "You are Insight Scholar AI.";
@@ -168,7 +173,7 @@ const callOllama = async (prompt: string, expectJson: boolean, schema?: Schema) 
     stream: false,
     messages: [
       { role: "system", content: systemContent },
-      { role: "user", content: prompt }
+      { role: "user", content: userPrompt }
     ],
     options: {
       temperature: expectJson ? 0 : 0.2
@@ -177,7 +182,7 @@ const callOllama = async (prompt: string, expectJson: boolean, schema?: Schema) 
 
   // Ollama JSON mode helps prevent prose/thinking output.
   if (expectJson) {
-    payload.format = "json";
+    payload.format = jsonSchema || "json";
   }
 
   const res = await fetch(OLLAMA_BASE_URL, {
