@@ -2,7 +2,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm install
+RUN npm ci
 
 COPY . .
 
@@ -18,13 +18,12 @@ ENV OPENROUTER_BASE_URL=$OPENROUTER_BASE_URL
 
 RUN npm run build
 
+# Runtime: static server only, avoids Vite host checks
 FROM node:20-alpine AS runtime
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm install
-
+RUN npm install -g serve
 COPY --from=build /app/dist ./dist
 
 EXPOSE 4173
-CMD ["npm","run","preview","--","--host","0.0.0.0","--port","4173"]
+CMD ["serve", "-s", "dist", "-l", "4173"]
