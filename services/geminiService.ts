@@ -122,6 +122,26 @@ const callOpenRouter = async (prompt: string, schema?: Schema) => {
   return { text: extractTextFromOpenRouter(data) };
 };
 
+// Normalize any input (File/Blob/object) -> string text for LLMs
+const contentsToText = async (contents: any): Promise<string> => {
+  if (typeof contents === 'string') return contents;
+
+  // Browser File / Blob
+  if (typeof File !== 'undefined' && contents instanceof File) {
+    return await contents.text();
+  }
+  if (typeof Blob !== 'undefined' && contents instanceof Blob) {
+    return await contents.text();
+  }
+
+  // Fallback: JSON stringify
+  try {
+    return JSON.stringify(contents);
+  } catch {
+    return String(contents ?? '');
+  }
+};
+
 // Wrapper to handle API calls with retry logic for 429 errors
 async function generateWithRetry(
   modelName: string, 
@@ -133,7 +153,7 @@ async function generateWithRetry(
   }
 
   let lastError: any;
-  const prompt = typeof params.contents === 'string' ? params.contents : JSON.stringify(params.contents);
+  const prompt = await contentsToText(params.contents);
 
   // Closed-loop helper: keep cycling providers on every failure (Gemini → OpenRouter → Gemini → ...)
   let providerIndex = 0;
