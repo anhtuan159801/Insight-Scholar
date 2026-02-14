@@ -1,0 +1,55 @@
+async function generateWithRetry(
+  modelName: string, 
+  params: any, 
+  maxRetries: number = 6
+): Promise<any> {
+  if (providerOrder.length === 0) {
+    throw new Error("No AI provider configured. Set GEMINI_API_KEY or OPENROUTER_API_KEY + OPENROUTER_MODEL.");
+  }
+
+  let lastError: any;
+  const prompt = typeof params.contents === 'string' ? params.contents : JSON.stringify(params.contents);
+
+  // Closed-loop: always alternate providers after every failure (Gemini -> OpenRouter -> Gemini ...)
+  let providerIndex = 0;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const provider = providerOrder[providerIndex];
+
+    try {
+      if (provider === 'openrouter') {
+        return await callOpenRouter(prompt, params.config?.responseSchema);
+      }
+      return await ai!.models.generateContent({
+        model: modelName,
+        ...params
+      });
+    } catch (error: any) {
+      lastError = error;
+      
+      const status = error.status || error.code || error?.response?.status;
+      const message: string = error.message || "";
+      const isQuota = status === 429 || (message && message.includes('429')) || (message && message.toLowerCase().includes('quota'));
+      const isServer = status === 503 || status === 500;
+
+      // Rotate provider on every error to form a closed failover loop
+      if (providerOrder.length > 1) {
+        providerIndex = (providerIndex + 1) % providerOrder.length;
+      }
+
+      if (attempt < maxRetries - 1) {
+        const waitTime = (isQuota || isServer) ? 2000 * Math.pow(2, Math.min(attempt, 3)) : 500;
+        console.warn(
+          `API error via ${provider}. Switching provider to ${providerOrder[providerIndex]} and retrying in ${waitTime}ms (Attempt ${attempt + 1}/${maxRetries})...`,
+          error
+        );
+        await delay(waitTime);
+        continue;
+      }
+
+      throw error;
+    }
+  }
+  throw lastError;
+}
+
