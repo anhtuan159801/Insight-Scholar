@@ -137,15 +137,16 @@ const DocumentList: React.FC<DocumentListProps> = ({
                 </div>
 
                 {engineMode === 'ollama' && (
-                  <div className="w-full mt-3 grid gap-3 md:grid-cols-2">
+                  <div className="w-full mt-4 bg-slate-900/50 border border-slate-800 rounded-lg p-3 grid gap-3 md:grid-cols-2">
                       <div className="flex flex-col gap-1">
                           <label className="text-[11px] uppercase font-semibold text-slate-300">Ollama Base URL</label>
                           <input
                             value={ollamaUrl}
                             onChange={(e) => setOllamaUrl(e.target.value)}
                             placeholder="https://<your-ngrok>.ngrok-free.app"
-                            className="w-full px-3 py-2 rounded-md bg-slate-900/60 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                            className="w-full px-3 py-2 rounded-md bg-slate-900/80 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
                           />
+                          <p className="text-[11px] text-slate-400 mt-1">Chỉ cần base URL, hệ thống tự thêm /api/chat nếu thiếu.</p>
                       </div>
                       <div className="flex flex-col gap-1">
                           <label className="text-[11px] uppercase font-semibold text-slate-300">Ollama Model</label>
@@ -153,8 +154,9 @@ const DocumentList: React.FC<DocumentListProps> = ({
                             value={ollamaModel}
                             onChange={(e) => setOllamaModel(e.target.value)}
                             placeholder="llama3.2"
-                            className="w-full px-3 py-2 rounded-md bg-slate-900/60 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
+                            className="w-full px-3 py-2 rounded-md bg-slate-900/80 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-amber-400"
                           />
+                          <p className="text-[11px] text-slate-400 mt-1">Nhập tên model bạn chạy trên Ollama server.</p>
                       </div>
                   </div>
                 )}
@@ -182,7 +184,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
              )}
              
              {engineMode === 'ollama' && (
-              <div className="mt-4 text-xs text-amber-200 bg-amber-900/30 border border-amber-800/50 rounded-lg p-3 flex gap-2">
+              <div className="mt-3 text-xs text-amber-200 bg-amber-900/30 border border-amber-800/50 rounded-lg p-3 flex gap-2">
                 <AlertCircle size={16} />
                 <span>Nhập URL cơ sở (ví dụ: https://xxx.ngrok-free.app) và model Ollama để dùng proxy riêng. Hệ thống sẽ tự thêm đuôi /api/chat nếu thiếu.</span>
               </div>
