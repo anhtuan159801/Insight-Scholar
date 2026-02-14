@@ -9,14 +9,14 @@ export default defineConfig(({ mode }) => {
         port: 3000,
         host: '0.0.0.0',
         strictPort: false,
-        // Allow Render and any forwarded hostname
-        allowedHosts: ['insight-scholar.onrender.com', '.onrender.com', 'localhost', '127.0.0.1'],
+        // Disable host check to avoid Render proxy block
+        allowedHosts: true,
       },
       preview: {
         host: '0.0.0.0',
         strictPort: false,
-        // Allow Render and any forwarded hostname
-        allowedHosts: ['insight-scholar.onrender.com', '.onrender.com', 'localhost', '127.0.0.1'],
+        // Disable host check to avoid Render proxy block
+        allowedHosts: true,
       },
       plugins: [react()],
       define: {
