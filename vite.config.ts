@@ -10,6 +10,10 @@ export default defineConfig(({ mode }) => {
         ...acc,
         [`process.env.${key}`]: JSON.stringify(value)
       }), {});
+    const ollamaEntries = {
+      'process.env.OLLAMA_MODEL': JSON.stringify(env.OLLAMA_MODEL),
+      'process.env.OLLAMA_BASE_URL': JSON.stringify(env.OLLAMA_BASE_URL)
+    };
     return {
       server: {
         port: 3000,
@@ -35,7 +39,8 @@ export default defineConfig(({ mode }) => {
         'process.env.OPENROUTER_API_KEY': JSON.stringify(env.OPENROUTER_API_KEY),
         'process.env.OPENROUTER_MODEL': JSON.stringify(env.OPENROUTER_MODEL),
         'process.env.OPENROUTER_BASE_URL': JSON.stringify(env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1'),
-        ...openRouterModelEntries
+        ...openRouterModelEntries,
+        ...ollamaEntries
       },
       resolve: {
         alias: {

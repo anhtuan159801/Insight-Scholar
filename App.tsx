@@ -9,7 +9,7 @@ import SynthesisMatrixView from './views/SynthesisMatrixView';
 import FolderManager from './components/FolderManager';
 import { Document, ProcessingStatus, Language, ResearchFolder, AnalysisType, AnalysisResult, PolicyAnalysisResult } from './types';
 import { parseFile } from './services/fileParser';
-import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance } from './services/geminiService';
+import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance, setPreferredEngine } from './services/geminiService';
 import { FileText, Book, Target, Menu, Sparkles, Scale } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -28,6 +28,7 @@ const App: React.FC = () => {
 
   const [analysisMode, setAnalysisMode] = useState<AnalysisType>('ACADEMIC'); 
   const [useSmartFilter, setUseSmartFilter] = useState(true);
+  const [engineMode, setEngineMode] = useState<'auto' | 'ollama'>('auto');
 
   // Handle file upload
   const handleFilesSelected = useCallback(async (files: File[]) => {
@@ -50,6 +51,7 @@ const App: React.FC = () => {
 
   // Handle Individual Analysis
   const handleAnalyze = async (docId: string) => {
+    setPreferredEngine(engineMode);
     setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status: ProcessingStatus.ANALYZING, errorMessage: undefined, analysisType: analysisMode } : d));
 
     const doc = documents.find(d => d.id === docId);
@@ -99,6 +101,7 @@ const App: React.FC = () => {
 
   // Smart Analyze (Bulk Action)
   const handleSmartAnalyze = async (objective: string) => {
+      setPreferredEngine(engineMode);
       const pendingDocs = documents.filter(d => d.status === ProcessingStatus.PENDING || d.status === ProcessingStatus.ERROR || d.status === ProcessingStatus.SKIPPED);
       if (pendingDocs.length === 0) return;
 
@@ -330,6 +333,8 @@ const App: React.FC = () => {
                 researchObjective={researchObjective}
                 analysisMode={analysisMode}
                 setAnalysisMode={setAnalysisMode}
+                engineMode={engineMode}
+                setEngineMode={setEngineMode}
                 useSmartFilter={useSmartFilter} // Pass state
                 setUseSmartFilter={setUseSmartFilter} // Pass setter
                 onAnalyze={handleAnalyze} 

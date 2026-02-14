@@ -27,13 +27,19 @@ const OPENROUTER_MODELS: string[] = Object.entries(process.env)
   })
   .map(([, value]) => value as string);
 
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL;
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/api/chat';
+
 const hasGemini = Boolean(GEMINI_API_KEY);
 const hasOpenRouter = Boolean(OPENROUTER_API_KEYS.length > 0 && OPENROUTER_MODELS.length > 0);
-type Provider = 'gemini' | 'openrouter';
-const providerOrder: Provider[] = [
+const hasOllama = Boolean(OLLAMA_MODEL);
+type Provider = 'gemini' | 'openrouter' | 'ollama';
+const defaultProviderOrder: Provider[] = [
   ...(hasGemini ? ['gemini' as const] : []),
-  ...(hasOpenRouter ? ['openrouter' as const] : [])
+  ...(hasOpenRouter ? ['openrouter' as const] : []),
 ];
+let preferredEngine: 'auto' | 'ollama' = 'auto';
+export const setPreferredEngine = (engine: 'auto' | 'ollama') => { preferredEngine = engine; };
 
 // Helper to get API Key safely (Gemini)
 const getApiKey = (): string => {
@@ -142,6 +148,35 @@ const callOpenRouter = async (model: string, prompt: string, schema?: Schema, ke
   return { text: extractTextFromOpenRouter(data) };
 };
 
+// Ollama caller (simple chat, no schema enforcement)
+const callOllama = async (prompt: string) => {
+  if (!hasOllama) throw new Error("Ollama is not configured.");
+
+  const res = await fetch(OLLAMA_BASE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      stream: false,
+      messages: [
+        { role: "system", content: "You are Insight Scholar AI." },
+        { role: "user", content: prompt }
+      ]
+    })
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    const error = new Error(`Ollama error ${res.status}: ${errorText}`);
+    (error as any).status = res.status;
+    throw error;
+  }
+
+  const data = await res.json();
+  const text = data?.message?.content || "";
+  return { text };
+};
+
 // Normalize any input (File/Blob/object) -> string text for LLMs
 const contentsToText = async (contents: any): Promise<string> => {
   if (typeof contents === 'string') return contents;
@@ -168,6 +203,11 @@ async function generateWithRetry(
   params: any, 
   maxRetries: number = 6
 ): Promise<any> {
+  const providerOrder =
+    preferredEngine === 'ollama'
+      ? (hasOllama ? (['ollama'] as Provider[]) : defaultProviderOrder)
+      : defaultProviderOrder;
+
   if (providerOrder.length === 0) {
     throw new Error("No AI provider configured. Set GEMINI_API_KEY or OPENROUTER_API_KEY + OPENROUTER_MODEL.");
   }
@@ -209,6 +249,9 @@ async function generateWithRetry(
         if (!model) throw new Error("No OpenRouter models configured.");
         const keyIdx = nextOpenRouterKeyIndex();
         return await callOpenRouter(model, prompt, params.config?.responseSchema, keyIdx);
+      }
+      if (provider === 'ollama') {
+        return await callOllama(prompt);
       }
       return await ai!.models.generateContent({
         model: modelName,

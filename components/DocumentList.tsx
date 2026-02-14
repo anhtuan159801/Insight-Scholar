@@ -9,6 +9,8 @@ interface DocumentListProps {
   researchObjective: string;
   analysisMode: AnalysisType;
   setAnalysisMode: (mode: AnalysisType) => void;
+  engineMode: 'auto' | 'ollama';
+  setEngineMode: (engine: 'auto' | 'ollama') => void;
   useSmartFilter: boolean; 
   setUseSmartFilter: (enabled: boolean) => void; 
   onAnalyze: (docId: string) => void;
@@ -23,6 +25,8 @@ const DocumentList: React.FC<DocumentListProps> = ({
   researchObjective, 
   analysisMode,
   setAnalysisMode,
+  engineMode,
+  setEngineMode,
   useSmartFilter,
   setUseSmartFilter,
   onAnalyze, 
@@ -106,6 +110,21 @@ const DocumentList: React.FC<DocumentListProps> = ({
                     >
                         <Scale size={14} />
                         {language === 'vi' ? 'Chính sách' : 'Policy'}
+                    </button>
+                </div>
+                {/* Engine Selector */}
+                <div className="flex bg-slate-800/50 rounded-lg p-1 border border-slate-700/50">
+                    <button
+                        onClick={() => setEngineMode('auto')}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${engineMode === 'auto' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'}`}
+                    >
+                        {language === 'vi' ? 'Tự động (Gemini/OpenRouter)' : 'Auto (Gemini/OpenRouter)'}
+                    </button>
+                    <button
+                        onClick={() => setEngineMode('ollama')}
+                        className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${engineMode === 'ollama' ? 'bg-amber-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'}`}
+                    >
+                        Ollama
                     </button>
                 </div>
              </div>
