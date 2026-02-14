@@ -1,6 +1,7 @@
 import { Document, ProcessingStatus } from '../types';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as mammoth from 'mammoth';
+import Tesseract from 'tesseract.js';
 
 // Handle potential default export wrapping for PDF.js in browser ESM environments
 const pdfjs = (pdfjsLib as any).default || pdfjsLib;
@@ -12,10 +13,41 @@ if (pdfjs && pdfjs.GlobalWorkerOptions) {
     pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 }
 
+// OCR fallback for scanned PDFs (process first few pages to limit latency)
+const ocrPdf = async (pdf: any, pageLimit: number = 3): Promise<string> => {
+    try {
+        const total = Math.min(pdf.numPages, pageLimit);
+        let text = '';
+
+        for (let i = 1; i <= total; i++) {
+            const page = await pdf.getPage(i);
+            const viewport = page.getViewport({ scale: 1.5 });
+
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            if (!context) continue;
+
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+
+            await page.render({ canvasContext: context, viewport }).promise;
+            const dataUrl = canvas.toDataURL('image/png');
+
+            const result = await Tesseract.recognize(dataUrl, 'eng');
+            text += (result.data.text || '') + '\n';
+        }
+        return text.trim();
+    } catch (err) {
+        console.warn('OCR fallback failed', err);
+        return '';
+    }
+};
+
 export const parseFile = async (file: File): Promise<Partial<Document>> => {
   return new Promise(async (resolve, reject) => {
     try {
       let content = "";
+      let pdf: any = null;
 
       if (file.type === 'application/pdf') {
         // Xử lý PDF
@@ -27,7 +59,7 @@ export const parseFile = async (file: File): Promise<Partial<Document>> => {
         }
 
         const loadingTask = pdfjs.getDocument({ data: arrayBuffer });
-        const pdf = await loadingTask.promise;
+        pdf = await loadingTask.promise;
         
         let fullText = "";
         const maxPages = pdf.numPages;
@@ -59,7 +91,13 @@ export const parseFile = async (file: File): Promise<Partial<Document>> => {
       // Kiểm tra nếu không trích xuất được nội dung (ví dụ PDF scan ảnh)
       if (!content || content.trim().length < 50) {
           if (file.type === 'application/pdf') {
-              content = `[CẢNH BÁO]: Không thể trích xuất văn bản từ file ${file.name}. Có thể file này là dạng scan (ảnh). Hệ thống cần file PDF có text (selectable).`;
+              // Thử OCR fallback cho PDF scan (tối đa 3 trang để tránh chậm)
+              const ocrText = pdf ? await ocrPdf(pdf, 3) : '';
+              if (ocrText && ocrText.length > 20) {
+                  content = ocrText;
+              } else {
+                  content = `[CẢNH BÁO]: Không thể trích xuất văn bản từ file ${file.name}. Có thể file này là dạng scan (ảnh). Hệ thống cần file PDF có text (selectable).`;
+              }
           } else if (!content) {
               content = "[Nội dung trống]";
           }
