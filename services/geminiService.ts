@@ -7,7 +7,13 @@ const GEMINI_API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL;
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
-const useOpenRouter = Boolean(OPENROUTER_API_KEY && OPENROUTER_MODEL);
+const hasGemini = Boolean(GEMINI_API_KEY);
+const hasOpenRouter = Boolean(OPENROUTER_API_KEY && OPENROUTER_MODEL);
+type Provider = 'gemini' | 'openrouter';
+const providerOrder: Provider[] = [
+  ...(hasGemini ? ['gemini' as const] : []),
+  ...(hasOpenRouter ? ['openrouter' as const] : [])
+];
 
 // Helper to get API Key safely (Gemini)
 const getApiKey = (): string => {
@@ -19,7 +25,7 @@ const getApiKey = (): string => {
 };
 
 // Instantiate Gemini only when needed
-const ai = useOpenRouter ? null : new GoogleGenAI({ apiKey: getApiKey() });
+const ai = hasGemini ? new GoogleGenAI({ apiKey: getApiKey() }) : null;
 
 // Helper for delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -72,7 +78,7 @@ const extractTextFromOpenRouter = (data: any): string => {
 
 // OpenRouter caller
 const callOpenRouter = async (prompt: string, schema?: Schema) => {
-  if (!useOpenRouter) {
+  if (!hasOpenRouter) {
     throw new Error("OpenRouter is not configured.");
   }
 
@@ -120,17 +126,31 @@ const callOpenRouter = async (prompt: string, schema?: Schema) => {
 async function generateWithRetry(
   modelName: string, 
   params: any, 
-  maxRetries: number = 4
+  maxRetries: number = 6
 ): Promise<any> {
+  if (providerOrder.length === 0) {
+    throw new Error("No AI provider configured. Set GEMINI_API_KEY or OPENROUTER_API_KEY + OPENROUTER_MODEL.");
+  }
+
   let lastError: any;
   const prompt = typeof params.contents === 'string' ? params.contents : JSON.stringify(params.contents);
-  
+
+  // Closed-loop helper: keep cycling providers on every failure (Gemini → OpenRouter → Gemini → ...)
+  let providerIndex = 0;
+  const currentProvider = () => providerOrder[providerIndex];
+  const switchProvider = () => {
+    if (providerOrder.length > 1) {
+      providerIndex = (providerIndex + 1) % providerOrder.length;
+    }
+  };
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const provider = currentProvider();
+
     try {
-      if (useOpenRouter) {
+      if (provider === 'openrouter') {
         return await callOpenRouter(prompt, params.config?.responseSchema);
       }
-
       return await ai!.models.generateContent({
         model: modelName,
         ...params
@@ -142,14 +162,20 @@ async function generateWithRetry(
       const message: string = error.message || "";
       const isQuota = status === 429 || (message && message.includes('429')) || (message && message.toLowerCase().includes('quota'));
       const isServer = status === 503 || status === 500;
-      
-      if ((isQuota || isServer) && attempt < maxRetries - 1) {
-        const waitTime = 2000 * Math.pow(2, attempt);
-        console.warn(`API error (${modelName}). Retrying in ${waitTime}ms (Attempt ${attempt + 1}/${maxRetries})...`, error);
+
+      // Rotate provider on every error to form a closed failover loop
+      switchProvider();
+
+      if (attempt < maxRetries - 1) {
+        const waitTime = (isQuota || isServer) ? 2000 * Math.pow(2, Math.min(attempt, 3)) : 500;
+        console.warn(
+          `API error via ${provider}. Switching provider to ${providerOrder[providerIndex]} and retrying in ${waitTime}ms (Attempt ${attempt + 1}/${maxRetries})...`,
+          error
+        );
         await delay(waitTime);
         continue;
       }
-      
+
       throw error;
     }
   }
@@ -464,3 +490,4 @@ export const classifyDocument = async (doc: any, folders: ResearchFolder[], lang
         return JSON.parse(response.text).folderIds || [];
     } catch (error) { return []; }
 }
+
