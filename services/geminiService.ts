@@ -204,6 +204,71 @@ const contentsToText = async (contents: any): Promise<string> => {
   }
 };
 
+const extractJsonCandidate = (rawText: string): string => {
+  if (!rawText) return rawText;
+
+  // Remove common reasoning/thinking wrappers.
+  let text = rawText
+    .replace(/<think[\s\S]*?<\/think>/gi, '')
+    .replace(/<reasoning[\s\S]*?<\/reasoning>/gi, '')
+    .trim();
+
+  // Prefer fenced JSON block when present.
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) {
+    text = fenced[1].trim();
+  }
+
+  // If already plain JSON, return directly.
+  if (text.startsWith('{') || text.startsWith('[')) return text;
+
+  // Otherwise scan for first balanced JSON object/array.
+  const start = text.search(/[\[{]/);
+  if (start === -1) return text;
+
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let end = -1;
+
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i];
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === '\\') {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (ch === '{' || ch === '[') depth++;
+    if (ch === '}' || ch === ']') depth--;
+
+    if (depth === 0) {
+      end = i + 1;
+      break;
+    }
+  }
+
+  if (end !== -1) return text.slice(start, end).trim();
+  return text;
+};
+
+const parseJsonSafe = <T = any>(rawText: string, context: string): T => {
+  const candidate = extractJsonCandidate(rawText);
+  try {
+    return JSON.parse(candidate) as T;
+  } catch (error) {
+    throw new Error(`${context}: invalid JSON response. Raw head: ${rawText.slice(0, 120)}`);
+  }
+};
+
 // Wrapper to handle API calls with retry logic for 429 errors
 async function generateWithRetry(
   modelName: string, 
@@ -330,7 +395,7 @@ export const checkRelevance = async (docContent: string, objective: string, lang
         });
         
         if (!response.text) return { isRelevant: true, reason: "AI Check Failed, defaulting to relevant." };
-        return JSON.parse(response.text);
+        return parseJsonSafe(response.text, "Relevance check");
     } catch (error) {
         console.error("Relevance check failed", error);
         return { isRelevant: true, reason: "Error during check, defaulting to relevant." };
@@ -412,7 +477,7 @@ export const analyzeDocument = async (docContent: string, language: Language): P
 
     const text = response.text;
     if (!text) throw new Error("Empty response from Gemini");
-    const result = JSON.parse(text);
+    const result = parseJsonSafe<any>(text, "Academic analysis");
     result.type = 'ACADEMIC'; // Ensure type is set
     return result as AnalysisResult;
   } catch (error) {
@@ -485,7 +550,7 @@ export const analyzePolicyDocument = async (docContent: string, language: Langua
 
     const text = response.text;
     if (!text) throw new Error("Empty response from Gemini");
-    const result = JSON.parse(text);
+    const result = parseJsonSafe<any>(text, "Policy analysis");
     result.type = 'POLICY'; // Ensure type is set
     return result as PolicyAnalysisResult;
   } catch (error) {
@@ -542,7 +607,7 @@ export const runBibliometricAnalysis = async (docs: Document[], objective: strin
       config: { responseMimeType: "application/json", responseSchema: schema },
     });
     if (!response.text) throw new Error("No data");
-    return JSON.parse(response.text) as BibliometricData;
+    return parseJsonSafe<BibliometricData>(response.text, "Bibliometric analysis");
   } catch (error) {
     console.error("Bibliometric analysis failed", error);
     throw error;
@@ -582,7 +647,7 @@ export const generateMatrixData = async (docs: Document[], columns: SynthesisMat
             config: { responseMimeType: "application/json", responseSchema: schema }
         });
         if(!response.text) throw new Error("No matrix data");
-        return JSON.parse(response.text) as SynthesisRow[];
+        return parseJsonSafe<SynthesisRow[]>(response.text, "Synthesis matrix");
     } catch (error) { throw error; }
 }
 
@@ -597,7 +662,7 @@ export const classifyDocument = async (doc: any, folders: ResearchFolder[], lang
     try {
         const response = await generateWithRetry('gemini-3-flash-preview', { contents: prompt, config: { responseMimeType: "application/json", responseSchema: schema } });
         if (!response.text) return [];
-        return JSON.parse(response.text).folderIds || [];
+        return parseJsonSafe<{ folderIds: string[] }>(response.text, "Document classification").folderIds || [];
     } catch (error) { return []; }
 }
 
