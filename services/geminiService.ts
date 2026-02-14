@@ -155,21 +155,35 @@ const callOpenRouter = async (model: string, prompt: string, schema?: Schema, ke
   return { text: extractTextFromOpenRouter(data) };
 };
 
-// Ollama caller (simple chat, no schema enforcement)
-const callOllama = async (prompt: string) => {
+// Ollama caller
+const callOllama = async (prompt: string, expectJson: boolean, schema?: Schema) => {
   if (!OLLAMA_MODEL || !OLLAMA_BASE_URL) throw new Error("Ollama is not configured.");
+
+  const systemContent = expectJson
+    ? "You are Insight Scholar AI. Return ONLY valid JSON. No markdown, no commentary, no prose outside JSON."
+    : "You are Insight Scholar AI.";
+
+  const payload: any = {
+    model: OLLAMA_MODEL,
+    stream: false,
+    messages: [
+      { role: "system", content: systemContent },
+      { role: "user", content: prompt }
+    ],
+    options: {
+      temperature: expectJson ? 0 : 0.2
+    }
+  };
+
+  // Ollama JSON mode helps prevent prose/thinking output.
+  if (expectJson) {
+    payload.format = "json";
+  }
 
   const res = await fetch(OLLAMA_BASE_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: OLLAMA_MODEL,
-      stream: false,
-      messages: [
-        { role: "system", content: "You are Insight Scholar AI." },
-        { role: "user", content: prompt }
-      ]
-    })
+    body: JSON.stringify(payload)
   });
 
   if (!res.ok) {
@@ -324,7 +338,8 @@ async function generateWithRetry(
         return await callOpenRouter(model, prompt, params.config?.responseSchema, keyIdx);
       }
       if (provider === 'ollama') {
-        return await callOllama(prompt);
+        const expectJson = params?.config?.responseMimeType === "application/json" || Boolean(params?.config?.responseSchema);
+        return await callOllama(prompt, expectJson, params?.config?.responseSchema);
       }
       return await ai!.models.generateContent({
         model: modelName,
