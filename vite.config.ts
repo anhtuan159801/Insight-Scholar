@@ -18,6 +18,10 @@ export default defineConfig(({ mode }) => {
         // Disable host check to avoid Render proxy block
         allowedHosts: true,
       },
+      build: {
+        // Raise chunk size warning threshold to reduce noisy logs in Render
+        chunkSizeWarningLimit: 2000, // in kB
+      },
       plugins: [react()],
       define: {
         'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
