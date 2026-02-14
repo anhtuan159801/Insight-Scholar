@@ -4,7 +4,16 @@ import { AnalysisResult, PolicyAnalysisResult, BibliometricData, Document, Synth
 
 // --- Provider Configuration ---
 const GEMINI_API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_API_KEYS: string[] = Object.entries(process.env)
+  .filter(([key, value]) => Boolean(value) && (key === 'OPENROUTER_API_KEY' || key.startsWith('OPENROUTER_API_KEY_')))
+  .sort(([a], [b]) => {
+    if (a === 'OPENROUTER_API_KEY') return -1;
+    if (b === 'OPENROUTER_API_KEY') return 1;
+    const numA = parseInt(a.split('_').pop() || '0', 10);
+    const numB = parseInt(b.split('_').pop() || '0', 10);
+    return numA - numB;
+  })
+  .map(([, value]) => value as string);
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
 const OPENROUTER_MODELS: string[] = Object.entries(process.env)
   .filter(([key, value]) => Boolean(value) && (key === 'OPENROUTER_MODEL' || key.startsWith('OPENROUTER_MODEL_')))
@@ -19,7 +28,7 @@ const OPENROUTER_MODELS: string[] = Object.entries(process.env)
   .map(([, value]) => value as string);
 
 const hasGemini = Boolean(GEMINI_API_KEY);
-const hasOpenRouter = Boolean(OPENROUTER_API_KEY && OPENROUTER_MODELS.length > 0);
+const hasOpenRouter = Boolean(OPENROUTER_API_KEYS.length > 0 && OPENROUTER_MODELS.length > 0);
 type Provider = 'gemini' | 'openrouter';
 const providerOrder: Provider[] = [
   ...(hasGemini ? ['gemini' as const] : []),
@@ -87,8 +96,8 @@ const extractTextFromOpenRouter = (data: any): string => {
   return '';
 };
 
-// OpenRouter caller
-const callOpenRouter = async (model: string, prompt: string, schema?: Schema) => {
+// OpenRouter caller (round-robin keys + models)
+const callOpenRouter = async (model: string, prompt: string, schema?: Schema, keyIndex: number) => {
   if (!hasOpenRouter) {
     throw new Error("OpenRouter is not configured.");
   }
@@ -106,7 +115,7 @@ const callOpenRouter = async (model: string, prompt: string, schema?: Schema) =>
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+      "Authorization": `Bearer ${OPENROUTER_API_KEYS[keyIndex % OPENROUTER_API_KEYS.length]}`,
       "HTTP-Referer": referer,
       "X-Title": "Insight Scholar"
     },
@@ -182,6 +191,14 @@ async function generateWithRetry(
     openRouterModelIndex = (openRouterModelIndex + 1) % OPENROUTER_MODELS.length;
     return model;
   };
+  // Round-robin OpenRouter API keys to spread quota
+  let openRouterKeyIndex = 0;
+  const nextOpenRouterKeyIndex = () => {
+    if (!OPENROUTER_API_KEYS.length) return 0;
+    const idx = openRouterKeyIndex;
+    openRouterKeyIndex = (openRouterKeyIndex + 1) % OPENROUTER_API_KEYS.length;
+    return idx;
+  };
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const provider = currentProvider();
@@ -190,7 +207,8 @@ async function generateWithRetry(
       if (provider === 'openrouter') {
         const model = nextOpenRouterModel();
         if (!model) throw new Error("No OpenRouter models configured.");
-        return await callOpenRouter(model, prompt, params.config?.responseSchema);
+        const keyIdx = nextOpenRouterKeyIndex();
+        return await callOpenRouter(model, prompt, params.config?.responseSchema, keyIdx);
       }
       return await ai!.models.generateContent({
         model: modelName,
