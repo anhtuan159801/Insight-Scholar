@@ -32,7 +32,7 @@ let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/api
 
 const hasGemini = Boolean(GEMINI_API_KEY);
 const hasOpenRouter = Boolean(OPENROUTER_API_KEYS.length > 0 && OPENROUTER_MODELS.length > 0);
-const hasOllama = Boolean(OLLAMA_MODEL);
+const hasOllamaStatic = Boolean(OLLAMA_MODEL);
 type Provider = 'gemini' | 'openrouter' | 'ollama';
 const defaultProviderOrder: Provider[] = [
   ...(hasGemini ? ['gemini' as const] : []),
@@ -210,9 +210,10 @@ async function generateWithRetry(
   params: any, 
   maxRetries: number = 6
 ): Promise<any> {
+  const hasOllamaDynamic = Boolean(OLLAMA_MODEL);
   const providerOrder =
     preferredEngine === 'ollama'
-      ? (hasOllama ? (['ollama'] as Provider[]) : defaultProviderOrder)
+      ? (hasOllamaDynamic ? (['ollama'] as Provider[]) : defaultProviderOrder)
       : defaultProviderOrder;
 
   if (providerOrder.length === 0) {
