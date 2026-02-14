@@ -2,321 +2,159 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
 import { AnalysisResult, PolicyAnalysisResult, BibliometricData, Document, SynthesisMatrixColumn, SynthesisRow, Language, ResearchFolder } from '../types';
 
-type LLMRequest = {
-  model: string;
-  prompt: string;
-  schema?: Schema;
-  mimeType?: string;
+// --- Provider Configuration ---
+const GEMINI_API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL;
+const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
+const useOpenRouter = Boolean(OPENROUTER_API_KEY && OPENROUTER_MODEL);
+
+// Helper to get API Key safely (Gemini)
+const getApiKey = (): string => {
+  if (!GEMINI_API_KEY) {
+    console.warn("Gemini API Key is missing. Please set process.env.GEMINI_API_KEY");
+    return "";
+  }
+  return GEMINI_API_KEY;
 };
 
-type LLMProvider = {
-  name: string;
-  isAvailable: () => boolean;
-  generate: (request: LLMRequest) => Promise<string>;
-};
+// Instantiate Gemini only when needed
+const ai = useOpenRouter ? null : new GoogleGenAI({ apiKey: getApiKey() });
 
+// Helper for delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const parseEnvList = (value?: string) =>
-  (value || "")
-    .split(",")
-    .map((v) => v.trim())
-    .filter(Boolean);
-
-const collectNumberedKeys = (prefix: string): string[] => {
-  return Object.entries(process.env || {})
-    .filter(([k, v]) => k.startsWith(prefix) && v)
-    .sort((a, b) => {
-      const numA = parseInt(a[0].slice(prefix.length), 10);
-      const numB = parseInt(b[0].slice(prefix.length), 10);
-      if (Number.isNaN(numA) && Number.isNaN(numB)) return 0;
-      if (Number.isNaN(numA)) return 1;
-      if (Number.isNaN(numB)) return -1;
-      return numA - numB;
-    })
-    .map(([, v]) => v as string)
-    .filter(Boolean);
+// Convert Gemini Schema -> JSON Schema (best-effort) for OpenRouter
+const mapType = (t?: Type) => {
+  switch (t) {
+    case Type.STRING: return "string";
+    case Type.NUMBER: return "number";
+    case Type.BOOLEAN: return "boolean";
+    case Type.ARRAY: return "array";
+    case Type.OBJECT: return "object";
+    default: return "string";
+  }
 };
 
-const GEMINI_KEYS = [
-  ...parseEnvList(
-    process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || process.env.API_KEY
-  ),
-  ...collectNumberedKeys("GEMINI_API_KEY_"),
-].filter(Boolean);
+const toJsonSchema = (schema?: Schema): any => {
+  if (!schema) return undefined;
+  const base: any = { type: mapType(schema.type) };
+  if ((schema as any).enum) base.enum = (schema as any).enum;
+  if ((schema as any).description) base.description = (schema as any).description;
+  if ((schema as any).properties) {
+    base.properties = {};
+    Object.entries((schema as any).properties).forEach(([key, value]) => {
+      base.properties[key] = toJsonSchema(value as Schema);
+    });
+  }
+  if ((schema as any).items) base.items = toJsonSchema((schema as any).items as Schema);
+  if ((schema as any).required) base.required = (schema as any).required;
+  return base;
+};
 
-const OPENROUTER_KEYS = [
-  ...(process.env.OPENROUTER_API_KEY ? [process.env.OPENROUTER_API_KEY] : []),
-  ...collectNumberedKeys("OPENROUTER_API_KEY_"),
-].filter(Boolean);
+// Extract text content from OpenRouter response
+const extractTextFromOpenRouter = (data: any): string => {
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.map((c: any) => {
+      if (!c) return '';
+      if (typeof c === 'string') return c;
+      if (c.text) return c.text;
+      if (c.type === 'text' && c.value) return c.value;
+      if (c.type === 'output_text' && c.output_text) return c.output_text;
+      return '';
+    }).join('');
+  }
+  if (content?.text) return content.text;
+  return '';
+};
 
-const OPENROUTER_MODEL =
-  process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct";
-const PROVIDER_ORDER =
-  parseEnvList(process.env.LLM_PROVIDER_ORDER) || ["gemini", "openrouter"];
-
-const isQuotaLikeError = (error: any) =>
-  error?.status === 429 ||
-  error?.code === 429 ||
-  (typeof error?.message === "string" &&
-    (error.message.includes("429") ||
-      error.message.toLowerCase().includes("quota"))) ||
-  error?.status === 503 ||
-  error?.code === 503;
-
-class GeminiProvider implements LLMProvider {
-  name = "gemini";
-  private keys: string[];
-  private keyIndex = 0;
-  private maxRetriesPerKey = 3;
-
-  constructor(keys: string[]) {
-    this.keys = keys;
+// OpenRouter caller
+const callOpenRouter = async (prompt: string, schema?: Schema) => {
+  if (!useOpenRouter) {
+    throw new Error("OpenRouter is not configured.");
   }
 
-  isAvailable = () => this.keys.length > 0;
+  const jsonSchema = schema ? toJsonSchema(schema) : undefined;
+  const responseFormat = jsonSchema
+    ? { type: "json_schema", json_schema: { name: "insight_schema", schema: jsonSchema } }
+    : { type: "json_object" };
 
-  private rotateKey() {
-    this.keyIndex = (this.keyIndex + 1) % this.keys.length;
-  }
+  const referer = typeof window !== 'undefined' && window.location?.origin
+    ? window.location.origin
+    : "https://insight-scholar.local";
 
-  private getCurrentClient() {
-    return new GoogleGenAI({ apiKey: this.keys[this.keyIndex] });
-  }
-
-  private async callWithRetry(request: LLMRequest) {
-    let lastError: any;
-    for (let attempt = 0; attempt < this.maxRetriesPerKey; attempt++) {
-      try {
-        const client = this.getCurrentClient();
-        const response = await client.models.generateContent({
-          model: request.model,
-          contents: request.prompt,
-          config: request.schema
-            ? {
-                responseMimeType: request.mimeType || "application/json",
-                responseSchema: request.schema,
-              }
-            : undefined,
-        });
-        return response.text || "";
-      } catch (error: any) {
-        lastError = error;
-        const retryable = isQuotaLikeError(error);
-        if (retryable && attempt < this.maxRetriesPerKey - 1) {
-          const waitTime = 2000 * Math.pow(2, attempt);
-          console.warn(
-            `[Gemini] quota/server issue, retrying in ${waitTime}ms (attempt ${
-              attempt + 1
-            }/${this.maxRetriesPerKey})...`,
-            error
-          );
-          await delay(waitTime);
-          continue;
-        }
-        throw error;
-      }
-    }
-    throw lastError;
-  }
-
-  generate = async (request: LLMRequest): Promise<string> => {
-    if (!this.isAvailable()) {
-      throw new Error("No Gemini API key configured.");
-    }
-
-    let tries = 0;
-    let lastError: any;
-
-    while (tries < this.keys.length) {
-      try {
-        const result = await this.callWithRetry(request);
-        if (!result) throw new Error("Empty response from Gemini");
-        return result;
-      } catch (error: any) {
-        lastError = error;
-        const shouldFailover = isQuotaLikeError(error);
-        console.warn(
-          `[Gemini] key #${this.keyIndex + 1}/${this.keys.length} error: ${
-            error?.message || error
-          }`
-        );
-
-        if (shouldFailover) {
-          this.rotateKey();
-          tries++;
-          console.info(
-            `[Gemini] switching to fallback key (${tries}/${this.keys.length})`
-          );
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    throw lastError || new Error("All Gemini API keys exhausted.");
-  };
-}
-
-class OpenRouterProvider implements LLMProvider {
-  name = "openrouter";
-  private keys: string[];
-  private keyIndex = 0;
-  private model: string;
-  private baseUrl = "https://openrouter.ai/api/v1/chat/completions";
-
-  constructor(keys: string[], model: string) {
-    this.keys = keys;
-    this.model = model;
-  }
-
-  isAvailable = () => this.keys.length > 0;
-
-  private rotateKey() {
-    this.keyIndex = (this.keyIndex + 1) % this.keys.length;
-  }
-
-  private currentKey() {
-    return this.keys[this.keyIndex];
-  }
-
-  generate = async (request: LLMRequest): Promise<string> => {
-    if (!this.isAvailable()) {
-      throw new Error("OpenRouter API key missing");
-    }
-
-    let attempts = 0;
-    let lastError: any;
-
-    while (attempts < this.keys.length) {
-      try {
-        const messages = [
-          {
-            role: "system",
-            content:
-              "You are a strict JSON generator. Respond with VALID JSON only. Do not include markdown or commentary.",
-          },
-          {
-            role: "user",
-            content: `${request.prompt}
-${
-  request.schema
-    ? `Return JSON that matches this schema (best effort): ${JSON.stringify(
-        request.schema
-      )}`
-    : "Return a compact JSON answer."
-}`,
-          },
-        ];
-
-        const response = await fetch(this.baseUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.currentKey()}`,
-          },
-          body: JSON.stringify({
-            model: this.model,
-            messages,
-            response_format: { type: "json_object" },
-            max_tokens: 2048,
-            temperature: 0.2,
-          }),
-        });
-
-        if (!response.ok) {
-          const body = await response.text();
-          throw new Error(
-            `OpenRouter error ${response.status}: ${response.statusText}. Body: ${body}`
-          );
-        }
-
-        const data = await response.json();
-        const content =
-          data?.choices?.[0]?.message?.content?.trim() ||
-          data?.choices?.[0]?.message?.content ||
-          "";
-
-        if (!content) {
-          throw new Error("Empty response from OpenRouter");
-        }
-        return content;
-      } catch (error: any) {
-        lastError = error;
-        const failover = isQuotaLikeError(error);
-        console.warn(
-          `[OpenRouter] key index ${this.keyIndex} failed: ${error?.message || error}`
-        );
-        if (failover && this.keys.length > 1) {
-          this.rotateKey();
-          attempts++;
-          console.info(
-            `[OpenRouter] switching to fallback key (${attempts}/${this.keys.length})`
-          );
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    throw lastError || new Error("All OpenRouter keys exhausted.");
-  };
-}
-
-const buildProviderChain = (): LLMProvider[] => {
-  const providers: LLMProvider[] = [];
-  const order = PROVIDER_ORDER.length ? PROVIDER_ORDER : ["gemini", "openrouter"];
-
-  order.forEach((entry) => {
-    if (entry === "gemini") {
-      const gemini = new GeminiProvider(GEMINI_KEYS);
-      if (gemini.isAvailable()) providers.push(gemini);
-    }
-    if (entry === "openrouter") {
-      const openrouter = new OpenRouterProvider(OPENROUTER_KEYS, OPENROUTER_MODEL);
-      if (openrouter.isAvailable()) providers.push(openrouter);
-    }
+  const res = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+      "HTTP-Referer": referer,
+      "X-Title": "Insight Scholar"
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      messages: [
+        { role: "system", content: "You are Insight Scholar AI. Follow the requested JSON structure exactly when provided." },
+        { role: "user", content: prompt }
+      ],
+      response_format: responseFormat,
+      temperature: 0.2,
+      max_tokens: 4096
+    })
   });
 
-  // Fallback order if env order misconfigured
-  if (providers.length === 0) {
-    const gemini = new GeminiProvider(GEMINI_KEYS);
-    if (gemini.isAvailable()) providers.push(gemini);
-    const openrouter = new OpenRouterProvider(OPENROUTER_KEYS, OPENROUTER_MODEL);
-    if (openrouter.isAvailable()) providers.push(openrouter);
+  if (!res.ok) {
+    const errorText = await res.text();
+    const error = new Error(`OpenRouter error ${res.status}: ${errorText}`);
+    (error as any).status = res.status;
+    throw error;
   }
 
-  return providers;
+  const data = await res.json();
+  return { text: extractTextFromOpenRouter(data) };
 };
 
-const generateContentWithFallback = async (request: LLMRequest): Promise<string> => {
-  const providers = buildProviderChain();
-  if (providers.length === 0) {
-    throw new Error(
-      "No LLM providers configured. Please set GEMINI_API_KEYS or OPENROUTER_API_KEY."
-    );
-  }
-
+// Wrapper to handle API calls with retry logic for 429 errors
+async function generateWithRetry(
+  modelName: string, 
+  params: any, 
+  maxRetries: number = 4
+): Promise<any> {
   let lastError: any;
-  const traces: string[] = [];
-  for (const provider of providers) {
+  const prompt = typeof params.contents === 'string' ? params.contents : JSON.stringify(params.contents);
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      const text = await provider.generate(request);
-      if (!text) throw new Error(`${provider.name} returned empty response`);
-      return text;
-    } catch (error) {
+      if (useOpenRouter) {
+        return await callOpenRouter(prompt, params.config?.responseSchema);
+      }
+
+      return await ai!.models.generateContent({
+        model: modelName,
+        ...params
+      });
+    } catch (error: any) {
       lastError = error;
-      const msg =
-        typeof error?.message === "string"
-          ? error.message
-          : JSON.stringify(error);
-      traces.push(`${provider.name}: ${msg}`);
-      console.warn(`[LLM Router] ${provider.name} failed:`, error);
+      
+      const status = error.status || error.code || error?.response?.status;
+      const message: string = error.message || "";
+      const isQuota = status === 429 || (message && message.includes('429')) || (message && message.toLowerCase().includes('quota'));
+      const isServer = status === 503 || status === 500;
+      
+      if ((isQuota || isServer) && attempt < maxRetries - 1) {
+        const waitTime = 2000 * Math.pow(2, attempt);
+        console.warn(`API error (${modelName}). Retrying in ${waitTime}ms (Attempt ${attempt + 1}/${maxRetries})...`, error);
+        await delay(waitTime);
+        continue;
+      }
+      
+      throw error;
     }
   }
-  const traceMsg = traces.length ? ` Chain: ${traces.join(" | ")}` : "";
-  throw lastError || new Error("All providers failed." + traceMsg);
-};
+  throw lastError;
+}
 
 // Check Relevance (Smart Filter)
 export const checkRelevance = async (docContent: string, objective: string, language: Language): Promise<{ isRelevant: boolean; reason: string }> => {
@@ -347,15 +185,16 @@ export const checkRelevance = async (docContent: string, objective: string, lang
     };
 
     try {
-        const text = await generateContentWithFallback({
-          model: 'gemini-2.5-flash',
-          prompt,
-          schema,
-          mimeType: "application/json",
+        const response = await generateWithRetry('gemini-3-flash-preview', {
+            contents: prompt,
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: schema
+            }
         });
         
-        if (!text) return { isRelevant: true, reason: "AI Check Failed, defaulting to relevant." };
-        return JSON.parse(text);
+        if (!response.text) return { isRelevant: true, reason: "AI Check Failed, defaulting to relevant." };
+        return JSON.parse(response.text);
     } catch (error) {
         console.error("Relevance check failed", error);
         return { isRelevant: true, reason: "Error during check, defaulting to relevant." };
@@ -427,14 +266,16 @@ export const analyzeDocument = async (docContent: string, language: Language): P
   `;
 
   try {
-    const text = await generateContentWithFallback({
-      model: 'gemini-2.5-flash',
-      prompt,
-      schema: academicSchema,
-      mimeType: "application/json",
+    const response = await generateWithRetry('gemini-3-flash-preview', {
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: academicSchema,
+      },
     });
 
-    if (!text) throw new Error("Empty response from providers");
+    const text = response.text;
+    if (!text) throw new Error("Empty response from Gemini");
     const result = JSON.parse(text);
     result.type = 'ACADEMIC'; // Ensure type is set
     return result as AnalysisResult;
@@ -498,14 +339,16 @@ export const analyzePolicyDocument = async (docContent: string, language: Langua
   `;
 
   try {
-    const text = await generateContentWithFallback({
-      model: 'gemini-2.5-flash',
-      prompt,
-      schema: policySchema,
-      mimeType: "application/json",
+    const response = await generateWithRetry('gemini-3-flash-preview', {
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: policySchema,
+      },
     });
 
-    if (!text) throw new Error("Empty response from providers");
+    const text = response.text;
+    if (!text) throw new Error("Empty response from Gemini");
     const result = JSON.parse(text);
     result.type = 'POLICY'; // Ensure type is set
     return result as PolicyAnalysisResult;
@@ -558,14 +401,12 @@ export const runBibliometricAnalysis = async (docs: Document[], objective: strin
   };
 
   try {
-    const text = await generateContentWithFallback({
-      model: 'gemini-2.5-flash',
-      prompt,
-      schema,
-      mimeType: "application/json",
+    const response = await generateWithRetry('gemini-3-flash-preview', {
+      contents: prompt,
+      config: { responseMimeType: "application/json", responseSchema: schema },
     });
-    if (!text) throw new Error("No data");
-    return JSON.parse(text) as BibliometricData;
+    if (!response.text) throw new Error("No data");
+    return JSON.parse(response.text) as BibliometricData;
   } catch (error) {
     console.error("Bibliometric analysis failed", error);
     throw error;
@@ -600,14 +441,12 @@ export const generateMatrixData = async (docs: Document[], columns: SynthesisMat
         }
     };
     try {
-        const text = await generateContentWithFallback({
-          model: 'gemini-2.5-flash',
-          prompt,
-          schema,
-          mimeType: "application/json",
+        const response = await generateWithRetry('gemini-3-flash-preview', {
+            contents: prompt,
+            config: { responseMimeType: "application/json", responseSchema: schema }
         });
-        if(!text) throw new Error("No matrix data");
-        return JSON.parse(text) as SynthesisRow[];
+        if(!response.text) throw new Error("No matrix data");
+        return JSON.parse(response.text) as SynthesisRow[];
     } catch (error) { throw error; }
 }
 
@@ -620,13 +459,8 @@ export const classifyDocument = async (doc: any, folders: ResearchFolder[], lang
     `;
     const schema: Schema = { type: Type.OBJECT, properties: { folderIds: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ["folderIds"] };
     try {
-        const text = await generateContentWithFallback({
-          model: 'gemini-2.5-flash',
-          prompt,
-          schema,
-          mimeType: "application/json",
-        });
-        if (!text) return [];
-        return JSON.parse(text).folderIds || [];
+        const response = await generateWithRetry('gemini-3-flash-preview', { contents: prompt, config: { responseMimeType: "application/json", responseSchema: schema } });
+        if (!response.text) return [];
+        return JSON.parse(response.text).folderIds || [];
     } catch (error) { return []; }
 }
