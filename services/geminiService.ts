@@ -5,10 +5,21 @@ import { AnalysisResult, PolicyAnalysisResult, BibliometricData, Document, Synth
 // --- Provider Configuration ---
 const GEMINI_API_KEY = process.env.API_KEY || process.env.GEMINI_API_KEY;
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL;
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1';
+const OPENROUTER_MODELS: string[] = Object.entries(process.env)
+  .filter(([key, value]) => Boolean(value) && (key === 'OPENROUTER_MODEL' || key.startsWith('OPENROUTER_MODEL_')))
+  .sort(([a], [b]) => {
+    // Ensure base key goes first, then numbered suffix ascending
+    if (a === 'OPENROUTER_MODEL') return -1;
+    if (b === 'OPENROUTER_MODEL') return 1;
+    const numA = parseInt(a.split('_').pop() || '0', 10);
+    const numB = parseInt(b.split('_').pop() || '0', 10);
+    return numA - numB;
+  })
+  .map(([, value]) => value as string);
+
 const hasGemini = Boolean(GEMINI_API_KEY);
-const hasOpenRouter = Boolean(OPENROUTER_API_KEY && OPENROUTER_MODEL);
+const hasOpenRouter = Boolean(OPENROUTER_API_KEY && OPENROUTER_MODELS.length > 0);
 type Provider = 'gemini' | 'openrouter';
 const providerOrder: Provider[] = [
   ...(hasGemini ? ['gemini' as const] : []),
@@ -77,7 +88,7 @@ const extractTextFromOpenRouter = (data: any): string => {
 };
 
 // OpenRouter caller
-const callOpenRouter = async (prompt: string, schema?: Schema) => {
+const callOpenRouter = async (model: string, prompt: string, schema?: Schema) => {
   if (!hasOpenRouter) {
     throw new Error("OpenRouter is not configured.");
   }
@@ -100,7 +111,7 @@ const callOpenRouter = async (prompt: string, schema?: Schema) => {
       "X-Title": "Insight Scholar"
     },
     body: JSON.stringify({
-      model: OPENROUTER_MODEL,
+      model,
       messages: [
         { role: "system", content: "You are Insight Scholar AI. Follow the requested JSON structure exactly when provided." },
         { role: "user", content: prompt }
@@ -163,13 +174,23 @@ async function generateWithRetry(
       providerIndex = (providerIndex + 1) % providerOrder.length;
     }
   };
+  // Round-robin OpenRouter models to dodge per-model rate limits
+  let openRouterModelIndex = 0;
+  const nextOpenRouterModel = () => {
+    if (!OPENROUTER_MODELS.length) return '';
+    const model = OPENROUTER_MODELS[openRouterModelIndex];
+    openRouterModelIndex = (openRouterModelIndex + 1) % OPENROUTER_MODELS.length;
+    return model;
+  };
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     const provider = currentProvider();
 
     try {
       if (provider === 'openrouter') {
-        return await callOpenRouter(prompt, params.config?.responseSchema);
+        const model = nextOpenRouterModel();
+        if (!model) throw new Error("No OpenRouter models configured.");
+        return await callOpenRouter(model, prompt, params.config?.responseSchema);
       }
       return await ai!.models.generateContent({
         model: modelName,
