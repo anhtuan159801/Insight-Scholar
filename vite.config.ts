@@ -8,12 +8,15 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
-        // Disable host check to support Render / dynamic hostnames
-        allowedHosts: true,
+        strictPort: false,
+        // Allow Render and any forwarded hostname
+        allowedHosts: ['insight-scholar.onrender.com', '.onrender.com', 'localhost', '127.0.0.1'],
       },
       preview: {
-        // Disable host check to support Render / dynamic hostnames
-        allowedHosts: true,
+        host: '0.0.0.0',
+        strictPort: false,
+        // Allow Render and any forwarded hostname
+        allowedHosts: ['insight-scholar.onrender.com', '.onrender.com', 'localhost', '127.0.0.1'],
       },
       plugins: [react()],
       define: {
