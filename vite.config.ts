@@ -8,12 +8,12 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 3000,
         host: '0.0.0.0',
-        // Allow Render host when running preview-like environments
-        allowedHosts: ['insight-scholar.onrender.com'],
+        // Disable host check to support Render / dynamic hostnames
+        allowedHosts: true,
       },
       preview: {
-        // Allow Render custom domain/host for Vite preview
-        allowedHosts: ['insight-scholar.onrender.com'],
+        // Disable host check to support Render / dynamic hostnames
+        allowedHosts: true,
       },
       plugins: [react()],
       define: {
