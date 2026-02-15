@@ -466,7 +466,60 @@ const academicSchema: Schema = {
         required: ["vi", "en"]
     }
   },
-  required: ["title", "authors", "citation_apa", "theoretical_framework", "conceptual_framework", "definitions_variables", "methodology", "results_interpretation", "overall_conclusion", "keywords"]
+  required: ["title", "authors", "citation_apa", "thesis_background", "theoretical_framework", "conceptual_framework", "definitions_variables", "methodology", "results_interpretation", "scope_limitations", "contributions_future_research", "overall_conclusion", "keywords"]
+};
+
+const isMissingText = (value: any): boolean => {
+  if (value === null || value === undefined) return true;
+  const s = String(value).trim();
+  if (!s) return true;
+  const lower = s.toLowerCase();
+  return lower === "undefined" || lower === "null" || lower === "n/a" || lower === "khong ro" || lower === "không rõ";
+};
+
+const fillAcademicMissingSections = async (docContent: string, draft: any): Promise<Partial<AnalysisResult>> => {
+  const missingKeys = (["thesis_background", "scope_limitations", "contributions_future_research"] as const)
+    .filter((k) => isMissingText(draft?.[k]));
+  if (missingKeys.length === 0) return {};
+
+  const schema: Schema = {
+    type: Type.OBJECT,
+    properties: {
+      thesis_background: { type: Type.STRING },
+      scope_limitations: { type: Type.STRING },
+      contributions_future_research: { type: Type.STRING }
+    },
+    required: missingKeys as unknown as string[]
+  };
+
+  const prompt = `
+You are completing missing sections in an academic analysis JSON.
+Return ONLY valid JSON.
+
+Rules:
+1) Fill ONLY these missing fields: ${missingKeys.join(', ')}.
+2) Do not leave any requested field empty.
+3) If the paper does not explicitly state it, infer cautiously from methods/results/objective in the text.
+4) Keep each field concise but specific (2-4 sentences).
+5) Use the same primary language as the document.
+
+Current analysis draft:
+${JSON.stringify(draft)}
+
+Document content:
+${docContent.substring(0, 120000)}
+  `;
+
+  const response = await generateWithRetry('gemini-3-flash-preview', {
+    contents: prompt,
+    config: {
+      responseMimeType: "application/json",
+      responseSchema: schema
+    }
+  });
+
+  if (!response?.text) return {};
+  return parseJsonSafe<Partial<AnalysisResult>>(response.text, "Academic missing sections");
 };
 
 export const analyzeDocument = async (docContent: string, language: Language): Promise<AnalysisResult> => {
@@ -481,6 +534,8 @@ export const analyzeDocument = async (docContent: string, language: Language): P
     2. **NAME FORMATTING**: Fix capitalization for all author names. Use Title Case (e.g., "Somdeth Keovongsack"), NEVER use full UPPERCASE for surnames (e.g., NOT "Somdeth KEOVONGSACK").
     
     Ensure specific data extraction (p-values, stats) and strict distinction between Theoretical & Conceptual frameworks.
+    IMPORTANT: You must provide non-empty content for thesis_background, scope_limitations, and contributions_future_research.
+    If not explicitly present, infer responsibly from context (method, results, objective) instead of leaving blank.
     
     Document Content:
     ${docContent.substring(0, 300000)}
@@ -498,6 +553,8 @@ export const analyzeDocument = async (docContent: string, language: Language): P
     const text = response.text;
     if (!text) throw new Error("Empty response from Gemini");
     const result = parseJsonSafe<any>(text, "Academic analysis");
+    const filled = await fillAcademicMissingSections(docContent, result);
+    Object.assign(result, filled);
     result.type = 'ACADEMIC'; // Ensure type is set
     return result as AnalysisResult;
   } catch (error) {
