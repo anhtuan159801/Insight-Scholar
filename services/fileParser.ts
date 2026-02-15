@@ -33,8 +33,16 @@ const ocrPdf = async (pdf: any, pageLimit: number = 3): Promise<string> => {
             await page.render({ canvasContext: context, viewport }).promise;
             const dataUrl = canvas.toDataURL('image/png');
 
-            const result = await Tesseract.recognize(dataUrl, 'eng');
-            text += (result.data.text || '') + '\n';
+            // Try Vietnamese + English first, then fallback to English.
+            let pageText = '';
+            try {
+                const resultVieEng = await Tesseract.recognize(dataUrl, 'vie+eng');
+                pageText = resultVieEng.data.text || '';
+            } catch {
+                const resultEng = await Tesseract.recognize(dataUrl, 'eng');
+                pageText = resultEng.data.text || '';
+            }
+            text += pageText + '\n';
         }
         return text.trim();
     } catch (err) {

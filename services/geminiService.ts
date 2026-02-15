@@ -288,6 +288,35 @@ const parseJsonSafe = <T = any>(rawText: string, context: string): T => {
   }
 };
 
+const buildStructuredPrompt = (args: {
+  role: string;
+  context: string;
+  task: string;
+  constraints: string[];
+}) => {
+  return `
+# Role #
+${args.role}
+
+###############
+
+# Context #
+\`\`\`
+${args.context}
+\`\`\`
+
+###############
+
+# Task #
+${args.task}
+
+###############
+
+# Constraints #
+${args.constraints.map((c) => `- ${c}`).join('\n')}
+`;
+};
+
 // Wrapper to handle API calls with retry logic for 429 errors
 async function generateWithRetry(
   modelName: string, 
@@ -525,21 +554,19 @@ ${docContent.substring(0, 120000)}
 export const analyzeDocument = async (docContent: string, language: Language): Promise<AnalysisResult> => {
   if (!docContent) throw new Error("No content to analyze");
 
-  // Removed hardcoded langInstruction based on UI. Now using dynamic detection.
-  const prompt = `
-    You are an expert academic researcher (Insight Scholar). Analyze the following scientific text thoroughly.
-    
-    **CRITICAL OUTPUT RULES**:
-    1. **LANGUAGE**: DETECT the primary language of the provided document content. You MUST write the analysis results (thesis, methodology, conclusion, etc.) in that **EXACT SAME LANGUAGE**. Do NOT translate unless the document uses mixed languages (then use the dominant one).
-    2. **NAME FORMATTING**: Fix capitalization for all author names. Use Title Case (e.g., "Somdeth Keovongsack"), NEVER use full UPPERCASE for surnames (e.g., NOT "Somdeth KEOVONGSACK").
-    
-    Ensure specific data extraction (p-values, stats) and strict distinction between Theoretical & Conceptual frameworks.
-    IMPORTANT: You must provide non-empty content for thesis_background, scope_limitations, and contributions_future_research.
-    If not explicitly present, infer responsibly from context (method, results, objective) instead of leaving blank.
-    
-    Document Content:
-    ${docContent.substring(0, 300000)}
-  `;
+  const prompt = buildStructuredPrompt({
+    role: "You are an expert academic researcher (Insight Scholar).",
+    context: docContent.substring(0, 300000),
+    task: "Analyze the document and return a complete academic analysis JSON matching the required schema.",
+    constraints: [
+      "Detect the primary language of the document and write analysis in that same language.",
+      "Fix author names to Title Case (never all-uppercase surnames).",
+      "Clearly separate theoretical framework and conceptual framework.",
+      "Extract specific evidence where possible (stats, methods, findings).",
+      "Do not leave thesis_background, scope_limitations, or contributions_future_research empty; infer cautiously from context if needed.",
+      "Return only JSON content."
+    ]
+  });
 
   try {
     const response = await generateWithRetry('gemini-3-flash-preview', {
@@ -598,23 +625,18 @@ const policySchema: Schema = {
 export const analyzePolicyDocument = async (docContent: string, language: Language): Promise<PolicyAnalysisResult> => {
   if (!docContent) throw new Error("No content to analyze");
 
-  // Removed hardcoded langInstruction based on UI. Now using dynamic detection.
-  const prompt = `
-    You are an expert Policy Analyst and News Aggregator. Analyze the following document.
-
-    **CRITICAL OUTPUT RULES**:
-    1. **LANGUAGE**: DETECT the primary language of the provided document content. You MUST write the analysis results in that **EXACT SAME LANGUAGE**.
-    2. **NAME FORMATTING**: Fix capitalization for all names (Stakeholders, People). Use Title Case (e.g., "Sypha Chanthavong"), NEVER use full UPPERCASE for surnames (e.g., NOT "Sypha CHANTHAVONG").
-
-    Focus on:
-    1. Identifying the type of document (Law vs News).
-    2. Who are the stakeholders?
-    3. What are the specific legal grounds (Articles, Clauses)?
-    4. What are the social/economic implications?
-
-    Document Content:
-    ${docContent.substring(0, 300000)}
-  `;
+  const prompt = buildStructuredPrompt({
+    role: "You are an expert policy analyst and news analyst.",
+    context: docContent.substring(0, 300000),
+    task: "Analyze the document and return a complete policy/news analysis JSON matching the required schema.",
+    constraints: [
+      "Detect the primary language of the document and write analysis in that same language.",
+      "Normalize person names and stakeholder names to Title Case.",
+      "Identify document type (law/decree/news/op-ed/circular/etc).",
+      "Extract legal basis, key stakeholders, key points, and impacts.",
+      "Return only JSON content."
+    ]
+  });
 
   try {
     const response = await generateWithRetry('gemini-3-flash-preview', {
