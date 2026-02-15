@@ -110,7 +110,7 @@ const extractTextFromOpenRouter = (data: any): string => {
 };
 
 // OpenRouter caller (round-robin keys + models)
-const callOpenRouter = async (model: string, prompt: string, schema?: Schema, keyIndex: number) => {
+const callOpenRouter = async (model: string, prompt: string, keyIndex: number, schema?: Schema) => {
   if (!hasOpenRouter) {
     throw new Error("OpenRouter is not configured.");
   }
@@ -369,7 +369,7 @@ async function generateWithRetry(
         const model = nextOpenRouterModel();
         if (!model) throw new Error("No OpenRouter models configured.");
         const keyIdx = nextOpenRouterKeyIndex();
-        return await callOpenRouter(model, prompt, params.config?.responseSchema, keyIdx);
+        return await callOpenRouter(model, prompt, keyIdx, params.config?.responseSchema);
       }
       if (provider === 'ollama') {
         const expectJson = params?.config?.responseMimeType === "application/json" || Boolean(params?.config?.responseSchema);
