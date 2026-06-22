@@ -61,6 +61,19 @@ let runtimeOpenRouterModel = DEFAULT_OPENROUTER_MODEL;
 export const setOpenRouterModel = (model: string) => {
   runtimeOpenRouterModel = model?.trim() || DEFAULT_OPENROUTER_MODEL;
 };
+
+let preferredEngine: 'auto' | 'ollama' = 'auto';
+let OLLAMA_MODEL = process.env.OLLAMA_MODEL || '';
+let OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434/api/chat';
+export const setPreferredEngine = (engine: 'auto' | 'ollama') => { preferredEngine = engine; };
+export const setOllamaConfig = (model?: string, baseUrl?: string) => {
+  if (model) OLLAMA_MODEL = model;
+  if (baseUrl) {
+    const trimmed = baseUrl.trim().replace(/\/$/, '');
+    OLLAMA_BASE_URL = trimmed.endsWith('/api/chat') ? trimmed : `${trimmed}/api/chat`;
+  }
+};
+
 const PROVIDER_ORDER =
   parseEnvList(process.env.LLM_PROVIDER_ORDER) || ["gemini", "openrouter"];
 
@@ -325,6 +338,35 @@ const generateContentWithFallback = async (request: LLMRequest): Promise<string>
   }
   const traceMsg = traces.length ? ` Chain: ${traces.join(" | ")}` : "";
   throw lastError || new Error("All providers failed." + traceMsg);
+};
+
+const parseJsonSafe = <T = any>(text: string, label: string): T => {
+  try {
+    return JSON.parse(text) as T;
+  } catch (e) {
+    const cleaned = (text || '').replace(/```(?:json)?\s*([\s\S]*?)\s*```/g, '$1').trim();
+    if (cleaned) {
+      try { return JSON.parse(cleaned) as T; }
+      catch { /* fall through */ }
+    }
+    console.error(`[${label}] JSON parse failed: ${(text || '').slice(0, 200)}`);
+    throw new Error(`Failed to parse ${label} response`);
+  }
+};
+
+const buildStructuredPrompt = (opts: { role: string; context: string; task: string; constraints: string[] }): string => {
+  return `${opts.role}
+
+Context / Document:
+${opts.context.substring(0, 300000)}
+
+Task:
+${opts.task}
+
+Constraints:
+${opts.constraints.map((c, i) => `${i + 1}. ${c}`).join('\n')}
+
+Respond with valid JSON only, no markdown wrapping.`;
 };
 
 // Check Relevance (Smart Filter)

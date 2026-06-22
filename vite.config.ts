@@ -4,29 +4,45 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, '.', '');
-
-    const dynamicKeys = Object.entries(env).reduce((acc, [key, value]) => {
-      if (key.startsWith('GEMINI_API_KEY_') || key.startsWith('OPENROUTER_API_KEY_')) {
-        acc[`process.env.${key}`] = JSON.stringify(value);
-      }
-      return acc;
-    }, {} as Record<string, string>);
-
+    const openRouterModelEntries = Object.entries(env)
+      .filter(([key]) => key === 'OPENROUTER_MODEL' || key.startsWith('OPENROUTER_MODEL_'))
+      .reduce((acc, [key, value]) => ({
+        ...acc,
+        [`process.env.${key}`]: JSON.stringify(value)
+      }), {});
+    const ollamaEntries = {
+      'process.env.OLLAMA_MODEL': JSON.stringify(env.OLLAMA_MODEL),
+      'process.env.OLLAMA_BASE_URL': JSON.stringify(env.OLLAMA_BASE_URL)
+    };
     return {
       server: {
         port: 3000,
         host: '0.0.0.0',
+        strictPort: false,
+        // Disable host check to avoid Render proxy block
+        allowedHosts: true,
+      },
+      preview: {
+        host: '0.0.0.0',
+        strictPort: false,
+        // Disable host check to avoid Render proxy block
+        allowedHosts: true,
+      },
+      build: {
+        // Raise chunk size warning threshold to reduce noisy logs in Render
+        chunkSizeWarningLimit: 2000, // in kB
       },
       plugins: [react()],
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.GEMINI_API_KEYS),
+        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
         'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEYS': JSON.stringify(env.GEMINI_API_KEYS),
         'process.env.OPENROUTER_API_KEY': JSON.stringify(env.OPENROUTER_API_KEY),
         'process.env.OPENROUTER_MODEL': JSON.stringify(env.OPENROUTER_MODEL),
         'process.env.LLM_PROVIDER_ORDER': JSON.stringify(env.LLM_PROVIDER_ORDER),
         'process.env.E2E_MODE': JSON.stringify(env.E2E_MODE || 'false'),
-        ...dynamicKeys,
+        'process.env.OPENROUTER_BASE_URL': JSON.stringify(env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1'),
+        ...openRouterModelEntries,
+        ...ollamaEntries
       },
       resolve: {
         alias: {

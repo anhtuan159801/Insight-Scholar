@@ -9,7 +9,7 @@ import SynthesisMatrixView from './views/SynthesisMatrixView';
 import FolderManager from './components/FolderManager';
 import { Document, ProcessingStatus, Language, ResearchFolder, AnalysisType, LegacyAnalysisResult, PolicyAnalysisResult } from './types';
 import { parseFile } from './services/fileParser';
-import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance, setOpenRouterModel } from './services/geminiService';
+import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance, setOpenRouterModel, setPreferredEngine, setOllamaConfig } from './services/geminiService';
 import { FileText, Book, Target, Menu, Sparkles, Scale } from 'lucide-react';
 import { useEffect } from 'react';
 import { isAcademicV2 } from './services/analysisNormalizer';
@@ -34,10 +34,19 @@ const App: React.FC = () => {
   const [useSmartFilter, setUseSmartFilter] = useState(true);
   const defaultOpenRouterModel = (process.env.OPENROUTER_MODEL as string) || 'meta-llama/llama-3.3-70b-instruct';
   const [openRouterModel, setOpenRouterModelState] = useState<string>(defaultOpenRouterModel);
+  const [engineMode, setEngineMode] = useState<'auto' | 'ollama'>('auto');
+  const [ollamaUrl, setOllamaUrl] = useState<string>(process.env.OLLAMA_BASE_URL || '');
+  const [ollamaModel, setOllamaModel] = useState<string>(process.env.OLLAMA_MODEL || '');
 
   useEffect(() => {
     setOpenRouterModel(openRouterModel);
-  }, [openRouterModel]);
+    if (engineMode === 'ollama' && ollamaUrl && ollamaModel) {
+      setPreferredEngine('ollama');
+      setOllamaConfig(ollamaModel, ollamaUrl);
+    } else {
+      setPreferredEngine('auto');
+    }
+  }, [openRouterModel, engineMode, ollamaUrl, ollamaModel]);
 
   // Handle file upload
   const handleFilesSelected = useCallback(async (files: File[]) => {
@@ -60,6 +69,10 @@ const App: React.FC = () => {
 
   // Handle Individual Analysis
   const handleAnalyze = async (docId: string) => {
+    if (engineMode === 'ollama') {
+      setOllamaConfig(ollamaModel, ollamaUrl);
+    }
+    setPreferredEngine(engineMode);
     setDocuments(prev => prev.map(d => d.id === docId ? { ...d, status: ProcessingStatus.ANALYZING, errorMessage: undefined, analysisType: analysisMode } : d));
 
     const doc = documents.find(d => d.id === docId);
@@ -109,72 +122,68 @@ const App: React.FC = () => {
 
   // Smart Analyze (Bulk Action)
   const handleSmartAnalyze = async (objective: string) => {
+      if (engineMode === 'ollama') {
+        setOllamaConfig(ollamaModel, ollamaUrl);
+      }
+      setPreferredEngine(engineMode);
       const pendingDocs = documents.filter(d => d.status === ProcessingStatus.PENDING || d.status === ProcessingStatus.ERROR || d.status === ProcessingStatus.SKIPPED);
       if (pendingDocs.length === 0) return;
 
+      // Mark all selected docs as queued
       setDocuments(prev => prev.map(d => 
           pendingDocs.find(pd => pd.id === d.id) 
           ? { ...d, status: useSmartFilter ? ProcessingStatus.FILTERING : ProcessingStatus.ANALYZING, relevanceReason: undefined, errorMessage: undefined, analysisType: analysisMode } 
           : d
       ));
 
-      const BATCH_SIZE = 3; 
-      
-      for (let i = 0; i < pendingDocs.length; i += BATCH_SIZE) {
-          const batch = pendingDocs.slice(i, i + BATCH_SIZE);
-          
-          await Promise.all(batch.map(async (doc) => {
-              try {
-                  if (useSmartFilter) {
-                      const relevanceCheck = await checkRelevance(doc.content, objective, language);
-                      
-                      if (!relevanceCheck.isRelevant) {
-                          setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, status: ProcessingStatus.SKIPPED, relevanceReason: relevanceCheck.reason } : d));
-                          return; 
-                      }
-                      setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, status: ProcessingStatus.ANALYZING, relevanceReason: relevanceCheck.reason } : d));
-                  } 
-
-                  let result;
-                  if (analysisMode === 'POLICY') {
-                      result = await analyzePolicyDocument(doc.content, language);
-                  } else {
-                      result = await analyzeDocument(doc.content, language);
-                  }
+      // Sequential processing to avoid simultaneous load on providers
+      for (const doc of pendingDocs) {
+          try {
+              if (useSmartFilter) {
+                  const relevanceCheck = await checkRelevance(doc.content, objective, language);
                   
-                  let matchedFolderIds: string[] = [];
-                  if (folders.length > 0) {
-                      try {
-                          matchedFolderIds = await classifyDocument(result, folders, language);
-                      } catch (e) { console.warn(e); }
+                  if (!relevanceCheck.isRelevant) {
+                      setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, status: ProcessingStatus.SKIPPED, relevanceReason: relevanceCheck.reason } : d));
+                      continue; 
                   }
+                  setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, status: ProcessingStatus.ANALYZING, relevanceReason: relevanceCheck.reason } : d));
+              } 
 
-                  setDocuments(prev => prev.map(d => 
-                    d.id === doc.id 
-                    ? { ...d, status: ProcessingStatus.SUCCESS, analysis: result, folderIds: matchedFolderIds } 
-                    : d
-                  ));
-
-              } catch (error: any) {
-                   const baseMsg = error?.message || '';
-                   const isQuota = (error?.message?.toLowerCase?.()?.includes('quota') || error?.code === 429);
-                   const friendly = isQuota
-                      ? (language === 'vi'
-                          ? 'Hết hạn mức/Quota. Đã xoay vòng key; thử lại sau ít phút.'
-                          : 'Quota exceeded. Keys rotated; please retry in a few minutes.')
-                      : (baseMsg || (language === 'vi' ? 'Lỗi xử lý.' : 'Processing error.'));
-
-                   setDocuments(prev => prev.map(d => 
-                    d.id === doc.id 
-                    ? { ...d, status: ProcessingStatus.ERROR, errorMessage: friendly } 
-                    : d
-                  ));
-                  if (baseMsg) console.error('[LLM Error]', baseMsg);
+              let result;
+              if (analysisMode === 'POLICY') {
+                  result = await analyzePolicyDocument(doc.content, language);
+              } else {
+                  result = await analyzeDocument(doc.content, language);
               }
-          }));
+              
+              let matchedFolderIds: string[] = [];
+              if (folders.length > 0) {
+                  try {
+                      matchedFolderIds = await classifyDocument(result, folders, language);
+                  } catch (e) { console.warn(e); }
+              }
 
-          if (i + BATCH_SIZE < pendingDocs.length) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
+              setDocuments(prev => prev.map(d => 
+                d.id === doc.id 
+                ? { ...d, status: ProcessingStatus.SUCCESS, analysis: result, folderIds: matchedFolderIds } 
+                : d
+              ));
+
+          } catch (error: any) {
+               const baseMsg = error?.message || '';
+               const isQuota = (error?.message?.toLowerCase?.()?.includes('quota') || error?.code === 429);
+               const friendly = isQuota
+                  ? (language === 'vi'
+                      ? 'Hết hạn mức/Quota. Đã xoay vòng key; thử lại sau ít phút.'
+                      : 'Quota exceeded. Keys rotated; please retry in a few minutes.')
+                  : (baseMsg || (language === 'vi' ? 'Lỗi xử lý.' : 'Processing error.'));
+
+               setDocuments(prev => prev.map(d => 
+                d.id === doc.id 
+                ? { ...d, status: ProcessingStatus.ERROR, errorMessage: friendly } 
+                : d
+              ));
+              if (baseMsg) console.error('[LLM Error]', baseMsg);
           }
       }
   };
@@ -356,6 +365,12 @@ const App: React.FC = () => {
                 researchObjective={researchObjective}
                 analysisMode={analysisMode}
                 setAnalysisMode={setAnalysisMode}
+                engineMode={engineMode}
+                setEngineMode={setEngineMode}
+                ollamaUrl={ollamaUrl}
+                setOllamaUrl={setOllamaUrl}
+                ollamaModel={ollamaModel}
+                setOllamaModel={setOllamaModel}
                 useSmartFilter={useSmartFilter} // Pass state
                 setUseSmartFilter={setUseSmartFilter} // Pass setter
                 onAnalyze={handleAnalyze} 

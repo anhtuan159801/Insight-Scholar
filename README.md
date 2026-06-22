@@ -1,65 +1,31 @@
 # Insight Scholar
 
-Ứng dụng hỗ trợ tổ chức, sàng lọc, phản biện bài báo khoa học theo quy trình 7 bước và xây dựng literature matrix bằng AI.
+AI assistant for screening and analyzing academic and policy documents. Supports Gemini by default and optional OpenRouter models.
 
 ## Run Locally
 
-### Prerequisites
+Prerequisites: Node.js 18+
 
-- Node.js 18+
-- Python 3.9+
+1. Install dependencies:
+   `npm install`
+2. Configure environment in `.env.local`:
+   - Gemini only:
+     `GEMINI_API_KEY=your_key`
+   - OpenRouter (optional, preferred if set):
+     `OPENROUTER_API_KEY=your_key`
+     `OPENROUTER_MODEL=openrouter/auto`
+     `OPENROUTER_BASE_URL=https://openrouter.ai/api/v1`
+3. Start dev server:
+   `npm run dev`
 
-### Environment
-
-Configure provider keys in `.env.local`:
-
-```dotenv
-GEMINI_API_KEY_1=your_key
-GEMINI_API_KEY_2=your_fallback_key
-OPENROUTER_API_KEY=your_openrouter_key
-OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct
-LLM_PROVIDER_ORDER=gemini,openrouter
-```
-
-Supported Gemini formats are `GEMINI_API_KEY_1`, `GEMINI_API_KEY_2`, `GEMINI_API_KEYS=key1,key2`, or `GEMINI_API_KEY=single_key`.
-
-### Python entrypoint
-
-Prepare dependencies, start Vite, and open the browser:
-
-```powershell
-python insight_scholar.py run
-```
-
-Run TypeScript checks, unit tests, the production build, and Playwright UI/UX tests:
-
-```powershell
-python insight_scholar.py test
-```
-
-Playwright reports, traces, and failure screenshots are written to `output/playwright/`.
-
-### npm commands
-
-```powershell
-npm install
-npm run dev
-npm run typecheck
-npm run test:unit
-npm run test:e2e
-npm run build
-```
+Notes:
+- Env values are injected at build time by Vite. Update `.env.local` and rebuild when keys/models change.
+- If both Gemini and OpenRouter are set, OpenRouter is used.
 
 ## Docker
 
-Environment variables are baked at build time by Vite. Provide keys during the image build:
+Build:
+`docker build --build-arg GEMINI_API_KEY=your_key --build-arg OPENROUTER_API_KEY=your_key --build-arg OPENROUTER_MODEL=openrouter/auto -t insight-scholar .`
 
-```powershell
-docker build -t insight-scholar `
-  --build-arg GEMINI_API_KEYS=key1,key2 `
-  --build-arg OPENROUTER_API_KEY=your_key `
-  --build-arg OPENROUTER_MODEL=meta-llama/llama-3.3-70b-instruct `
-  .
-
-docker run -p 3000:80 insight-scholar
-```
+Run:
+`docker run -p 4173:4173 insight-scholar`

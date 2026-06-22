@@ -1,48 +1,30 @@
-# syntax=docker/dockerfile:1
-
-# --- Build stage ---
-FROM node:20-alpine AS builder
+FROM node:20-alpine AS build
 WORKDIR /app
 
-# Build-time env (baked into bundle by Vite)
-ARG GEMINI_API_KEYS
-ARG GEMINI_API_KEY
-ARG GEMINI_API_KEY_1
-ARG GEMINI_API_KEY_2
-ARG GEMINI_API_KEY_3
-ARG OPENROUTER_API_KEY
-ARG OPENROUTER_API_KEY_1
-ARG OPENROUTER_API_KEY_2
-ARG OPENROUTER_MODEL
-ARG LLM_PROVIDER_ORDER
-ENV GEMINI_API_KEYS=${GEMINI_API_KEYS}
-ENV GEMINI_API_KEY=${GEMINI_API_KEY}
-ENV GEMINI_API_KEY_1=${GEMINI_API_KEY_1}
-ENV GEMINI_API_KEY_2=${GEMINI_API_KEY_2}
-ENV GEMINI_API_KEY_3=${GEMINI_API_KEY_3}
-ENV OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-ENV OPENROUTER_API_KEY_1=${OPENROUTER_API_KEY_1}
-ENV OPENROUTER_API_KEY_2=${OPENROUTER_API_KEY_2}
-ENV OPENROUTER_MODEL=${OPENROUTER_MODEL}
-ENV LLM_PROVIDER_ORDER=${LLM_PROVIDER_ORDER}
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# Install dependencies
-COPY package*.json ./
-RUN npm install --include=dev
-
-# Build
 COPY . .
+
+ARG GEMINI_API_KEY
+ARG OPENROUTER_API_KEY
+ARG OPENROUTER_MODEL
+ARG OPENROUTER_BASE_URL
+
+ENV GEMINI_API_KEY=$GEMINI_API_KEY
+ENV OPENROUTER_API_KEY=$OPENROUTER_API_KEY
+ENV OPENROUTER_MODEL=$OPENROUTER_MODEL
+ENV OPENROUTER_BASE_URL=$OPENROUTER_BASE_URL
+
 RUN npm run build
 
-# --- Runtime stage ---
-FROM nginx:1.27-alpine AS runtime
-WORKDIR /usr/share/nginx/html
+# Runtime: static server only, avoids Vite host checks
+FROM node:20-alpine AS runtime
+WORKDIR /app
 
-# Copy static build
-COPY --from=builder /app/dist ./
+RUN npm install -g serve
+COPY --from=build /app/dist ./dist
 
-# Nginx SPA routing
-COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
-
-EXPOSE 80
-CMD ["nginx", "-g", "daemon off;"]
+EXPOSE 4173
+# Respect Render's PORT env; default 4173 for local runs
+CMD ["sh", "-c", "serve -s dist -l ${PORT:-4173}"]
