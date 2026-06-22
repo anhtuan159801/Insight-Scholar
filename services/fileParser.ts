@@ -1,16 +1,15 @@
 import { Document, ProcessingStatus } from '../types';
 import * as pdfjsLib from 'pdfjs-dist';
 import * as mammoth from 'mammoth';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 
 // Handle potential default export wrapping for PDF.js in browser ESM environments
-const pdfjs = (pdfjsLib as any).default || pdfjsLib;
+const pdfjs = pdfjsLib;
 const mammothClient = (mammoth as any).default || mammoth;
 
 // Cấu hình worker cho PDF.js
 // Sử dụng CDNJS để đảm bảo tính ổn định khi load worker trong môi trường browser/sandbox
-if (pdfjs && pdfjs.GlobalWorkerOptions) {
-    pdfjs.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-}
+if (pdfjs && pdfjs.GlobalWorkerOptions) pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 export const parseFile = async (file: File): Promise<Partial<Document>> => {
   return new Promise(async (resolve, reject) => {

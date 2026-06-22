@@ -7,13 +7,17 @@ import AnalysisView from './views/AnalysisView';
 import BibliometricView from './views/BibliometricView';
 import SynthesisMatrixView from './views/SynthesisMatrixView';
 import FolderManager from './components/FolderManager';
-import { Document, ProcessingStatus, Language, ResearchFolder, AnalysisType, AnalysisResult, PolicyAnalysisResult } from './types';
+import { Document, ProcessingStatus, Language, ResearchFolder, AnalysisType, LegacyAnalysisResult, PolicyAnalysisResult } from './types';
 import { parseFile } from './services/fileParser';
-import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance } from './services/geminiService';
+import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance, setOpenRouterModel } from './services/geminiService';
 import { FileText, Book, Target, Menu, Sparkles, Scale } from 'lucide-react';
+import { useEffect } from 'react';
+import { isAcademicV2 } from './services/analysisNormalizer';
+import { formatAcademicReport } from './services/analysisProjection';
+import { createE2EDocument } from './services/e2eFixture';
 
 const App: React.FC = () => {
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [documents, setDocuments] = useState<Document[]>(() => process.env.E2E_MODE === 'true' ? [createE2EDocument()] : []);
   const [folders, setFolders] = useState<ResearchFolder[]>([]);
   const [activeTab, setActiveTab] = useState('upload');
   const [viewingDocId, setViewingDocId] = useState<string | null>(null);
@@ -28,6 +32,12 @@ const App: React.FC = () => {
 
   const [analysisMode, setAnalysisMode] = useState<AnalysisType>('ACADEMIC'); 
   const [useSmartFilter, setUseSmartFilter] = useState(true);
+  const defaultOpenRouterModel = (process.env.OPENROUTER_MODEL as string) || 'meta-llama/llama-3.3-70b-instruct';
+  const [openRouterModel, setOpenRouterModelState] = useState<string>(defaultOpenRouterModel);
+
+  useEffect(() => {
+    setOpenRouterModel(openRouterModel);
+  }, [openRouterModel]);
 
   // Handle file upload
   const handleFilesSelected = useCallback(async (files: File[]) => {
@@ -206,6 +216,12 @@ const App: React.FC = () => {
       successDocs.forEach((doc, i) => { 
           const a = doc.analysis!; 
           content += `DOCUMENT #${i+1}: ${a.title}\n`;
+
+          if (isAcademicV2(a)) {
+              content += `${formatAcademicReport(doc, language)}\n`;
+              content += `=================================================================\n\n\n`;
+              return;
+          }
           
           if(a.type === 'POLICY') {
               const p = a as PolicyAnalysisResult;
@@ -221,7 +237,7 @@ const App: React.FC = () => {
               content += `[6] CONTROVERSIES / TRANH LUẬN:\n${p.controversies_criticism}\n\n`;
               content += `[7] CONCLUSION / KẾT LUẬN:\n${p.conclusion_summary}\n\n`;
           } else {
-              const ac = a as AnalysisResult;
+              const ac = a as LegacyAnalysisResult;
               content += `TYPE: ACADEMIC RESEARCH\n`;
               content += `AUTHORS: ${ac.authors?.join(', ')}\n`;
               content += `CITATION: ${ac.citation_apa}\n`;
@@ -264,9 +280,11 @@ const App: React.FC = () => {
       successDocs.forEach((doc, i) => {
          const a = doc.analysis!;
          if (a.type === 'POLICY') {
-              c += `@misc{ref${i}, title={${a.title}}, author={{${a.document_category}}}, year={2024}, note={Source: ${a.source_date}}}\n\n`;
+              const year = a.source_date?.match(/(?:19|20)\d{2}/)?.[0] || 'unknown';
+              c += `@misc{ref${i}, title={${a.title}}, author={{${a.document_category}}}, year={${year}}, note={Source: ${a.source_date}}}\n\n`;
          } else {
-              c += `@article{ref${i}, title={${a.title}}, author={${a.authors?.join(' and ')}}, year={2024}}\n\n`;
+              const year = isAcademicV2(a) ? a.publication_year : a.citation_apa?.match(/(?:19|20)\d{2}/)?.[0] || 'unknown';
+              c += `@article{ref${i}, title={${a.title}}, author={${a.authors?.join(' and ')}}, year={${year}}}\n\n`;
          }
       });
       downloadFile(c, `refs.bib`, 'application/x-bibtex');
@@ -276,7 +294,7 @@ const App: React.FC = () => {
   const renderContent = () => {
     if (viewingDocId) {
         const doc = documents.find(d => d.id === viewingDocId);
-        if (doc) return <AnalysisView doc={doc} onBack={() => setViewingDocId(null)} />;
+        if (doc) return <AnalysisView doc={doc} language={language} onBack={() => setViewingDocId(null)} />;
     }
 
     switch (activeTab) {
@@ -383,6 +401,7 @@ const App: React.FC = () => {
                          {analyzedDocs.map(doc => (
                              <button 
                                 key={doc.id}
+                                data-testid={`analysis-card-${doc.id}`}
                                 onClick={() => setViewingDocId(doc.id)}
                                 className="group p-6 bg-white border border-slate-200 rounded-2xl shadow-sm hover:shadow-xl hover:-translate-y-1 hover:border-blue-200 text-left transition-all duration-300 flex flex-col h-full"
                              >
@@ -447,10 +466,25 @@ const App: React.FC = () => {
       <main className={`flex-1 flex flex-col h-screen overflow-hidden relative transition-all duration-300 ${desktopSidebarCollapsed ? 'md:ml-20' : 'md:ml-72'}`}>
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 md:px-8 z-20 shrink-0 sticky top-0">
              <div className="flex items-center gap-3">
-                 <button onClick={() => setMobileSidebarOpen(true)} className="md:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg"><Menu size={24} /></button>
+                 <button data-testid="mobile-menu" onClick={() => setMobileSidebarOpen(true)} className="md:hidden p-2 text-slate-600 hover:bg-slate-100 rounded-lg"><Menu size={24} /></button>
                  <h1 className="md:hidden font-bold text-slate-800 text-lg flex items-center gap-2"><Book className="text-blue-600" size={20} /> Insight Scholar</h1>
              </div>
-             <div className="flex items-center gap-4 ml-auto">
+             <div className="flex items-center gap-4 ml-auto flex-wrap justify-end">
+                <div className="hidden md:flex flex-col text-right">
+                  <label className="text-[10px] uppercase font-semibold text-slate-500 tracking-wide">{language === 'vi' ? 'Model fallback' : 'Fallback model'}</label>
+                  <select
+                    value={openRouterModel}
+                    onChange={(e) => setOpenRouterModelState(e.target.value)}
+                    className="bg-slate-100 border border-slate-200 text-slate-800 text-xs rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-[220px]"
+                  >
+                    <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B Instruct</option>
+                    <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                    <option value="gpt-4o-mini">GPT-4o mini</option>
+                    <option value="qwen/qwen3-next-80b-a3b-instruct:free">Qwen 3 Next 80B (free, dễ rate limit)</option>
+                    <option value={openRouterModel}>{openRouterModel}</option>
+                  </select>
+                </div>
+
                 <div className="bg-slate-100 rounded-lg p-1 flex items-center">
                     <button onClick={() => setLanguage('en')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${language === 'en' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>EN</button>
                     <button onClick={() => setLanguage('vi')} className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all ${language === 'vi' ? 'bg-white text-blue-600 shadow-sm' : 'text-slate-500'}`}>VI</button>

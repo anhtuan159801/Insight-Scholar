@@ -25,6 +25,7 @@ export default defineConfig(({ mode }) => {
         'process.env.OPENROUTER_API_KEY': JSON.stringify(env.OPENROUTER_API_KEY),
         'process.env.OPENROUTER_MODEL': JSON.stringify(env.OPENROUTER_MODEL),
         'process.env.LLM_PROVIDER_ORDER': JSON.stringify(env.LLM_PROVIDER_ORDER),
+        'process.env.E2E_MODE': JSON.stringify(env.E2E_MODE || 'false'),
         ...dynamicKeys,
       },
       resolve: {

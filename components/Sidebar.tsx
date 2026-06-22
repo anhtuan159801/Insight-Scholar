@@ -83,6 +83,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               return (
                 <button
                   key={item.id}
+                  data-testid={`nav-${item.id}`}
                   onClick={() => {
                     setActiveTab(item.id);
                     setIsMobileOpen(false); 
