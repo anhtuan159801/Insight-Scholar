@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeAcademicAnalysis } from '../../services/analysisNormalizer';
-import { CORE_MATRIX_COLUMNS, toCriticalAppraisalRows, toLiteratureMatrixRow } from '../../services/analysisProjection';
-import { buildLiteratureWorkbook } from '../../services/excelExport';
-import { createE2EDocument } from '../../services/e2eFixture';
+import { normalizeAcademicAnalysis } from '../../src/services/analysisNormalizer';
+import { toLiteratureMatrixRow, toCriticalAppraisalRows, CORE_MATRIX_COLUMNS } from '../../src/services/analysisProjection';
+import { buildLiteratureWorkbook } from '../../src/services/excelExport';
+import { createE2EDocument } from '../../src/services/e2eFixture';
 
 describe('academic analysis V2 contract', () => {
   it('normalizes partial provider output without undefined fields', () => {

@@ -11,7 +11,7 @@
     ],
     "skipLibCheck": true,
     "typeRoots": [
-      "./types",
+      "./src/types",
       "./node_modules/@types"
     ],
     "moduleResolution": "bundler",
@@ -21,7 +21,7 @@
     "jsx": "react-jsx",
     "paths": {
       "@/*": [
-        "./*"
+        "./src/*"
       ]
     },
     "allowImportingTsExtensions": true,

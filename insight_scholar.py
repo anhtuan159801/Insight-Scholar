@@ -119,9 +119,11 @@ def run_tests() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run or test the complete Insight Scholar application.")
-    subparsers = parser.add_subparsers(dest="mode", required=True)
+    subparsers = parser.add_subparsers(dest="mode")
     subparsers.add_parser("run", help="Install missing dependencies, start Vite, and open the browser.")
     subparsers.add_parser("test", help="Run typecheck, unit tests, build, and Playwright UI/UX tests.")
+    if len(sys.argv) < 2:
+        return parser.parse_args(["run"])
     return parser.parse_args()
 
 
