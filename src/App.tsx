@@ -9,7 +9,7 @@ import SynthesisMatrixView from './views/SynthesisMatrixView';
 import FolderManager from './components/FolderManager';
 import { Document, ProcessingStatus, Language, ResearchFolder, AnalysisType, LegacyAnalysisResult, PolicyAnalysisResult } from './types';
 import { parseFile } from './services/fileParser';
-import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance, setOpenRouterModel, setPreferredEngine, setOllamaConfig } from './services/geminiService';
+import { analyzeDocument, analyzePolicyDocument, classifyDocument, checkRelevance, setUnifiedModel, setPreferredEngine, setOllamaConfig } from './services/llmService';
 import { FileText, Book, Target, Menu, Sparkles, Scale } from 'lucide-react';
 import { useEffect } from 'react';
 import { isAcademicV2 } from './services/analysisNormalizer';
@@ -32,21 +32,21 @@ const App: React.FC = () => {
 
   const [analysisMode, setAnalysisMode] = useState<AnalysisType>('ACADEMIC'); 
   const [useSmartFilter, setUseSmartFilter] = useState(true);
-  const defaultOpenRouterModel = (process.env.OPENROUTER_MODEL as string) || 'meta-llama/llama-3.3-70b-instruct';
-  const [openRouterModel, setOpenRouterModelState] = useState<string>(defaultOpenRouterModel);
+  const defaultUnifiedModel = (process.env.UNIFIED_MODEL as string) || (process.env.FREELLMAPI_MODEL as string) || 'anthropic/claude-3.5-sonnet';
+  const [unifiedModel, setUnifiedModelState] = useState<string>(defaultUnifiedModel);
   const [engineMode, setEngineMode] = useState<'auto' | 'ollama'>('auto');
   const [ollamaUrl, setOllamaUrl] = useState<string>(process.env.OLLAMA_BASE_URL || '');
   const [ollamaModel, setOllamaModel] = useState<string>(process.env.OLLAMA_MODEL || '');
 
   useEffect(() => {
-    setOpenRouterModel(openRouterModel);
+    setUnifiedModel(unifiedModel);
     if (engineMode === 'ollama' && ollamaUrl && ollamaModel) {
       setPreferredEngine('ollama');
       setOllamaConfig(ollamaModel, ollamaUrl);
     } else {
       setPreferredEngine('auto');
     }
-  }, [openRouterModel, engineMode, ollamaUrl, ollamaModel]);
+  }, [unifiedModel, engineMode, ollamaUrl, ollamaModel]);
 
   // Handle file upload
   const handleFilesSelected = useCallback(async (files: File[]) => {
@@ -486,17 +486,18 @@ const App: React.FC = () => {
              </div>
              <div className="flex items-center gap-4 ml-auto flex-wrap justify-end">
                 <div className="hidden md:flex flex-col text-right">
-                  <label className="text-[10px] uppercase font-semibold text-slate-500 tracking-wide">{language === 'vi' ? 'Model fallback' : 'Fallback model'}</label>
+                  <label className="text-[10px] uppercase font-semibold text-slate-500 tracking-wide">{language === 'vi' ? 'Unified model' : 'Unified model'}</label>
                   <select
-                    value={openRouterModel}
-                    onChange={(e) => setOpenRouterModelState(e.target.value)}
+                    value={unifiedModel}
+                    onChange={(e) => setUnifiedModelState(e.target.value)}
                     className="bg-slate-100 border border-slate-200 text-slate-800 text-xs rounded-md px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-blue-500 min-w-[220px]"
                   >
-                    <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B Instruct</option>
                     <option value="anthropic/claude-3.5-sonnet">Claude 3.5 Sonnet</option>
+                    <option value="anthropic/claude-3-haiku">Claude 3 Haiku</option>
                     <option value="gpt-4o-mini">GPT-4o mini</option>
+                    <option value="meta-llama/llama-3.3-70b-instruct">Llama 3.3 70B Instruct</option>
                     <option value="qwen/qwen3-next-80b-a3b-instruct:free">Qwen 3 Next 80B (free, dễ rate limit)</option>
-                    <option value={openRouterModel}>{openRouterModel}</option>
+                    <option value={unifiedModel}>{unifiedModel}</option>
                   </select>
                 </div>
 

@@ -1,5 +1,5 @@
 {
   "name": "Insight Scholar",
-  "description": "A comprehensive AI-powered research assistant for analyzing, synthesizing, and comparing scientific documents using Google Gemini.",
+  "description": "A comprehensive AI-powered research assistant for analyzing, synthesizing, and comparing scientific documents using a unified LLM provider proxy.",
   "requestFramePermissions": []
 }

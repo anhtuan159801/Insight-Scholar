@@ -1,16 +1,23 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { AnalysisResult, PolicyAnalysisResult, BibliometricData, Document, SynthesisMatrixColumn, SynthesisRow, Language, ResearchFolder } from '../types';
 import { normalizeAcademicAnalysis } from './analysisNormalizer';
 
 type JsonSchema = any;
+
+const Type = {
+  ARRAY: "array",
+  BOOLEAN: "boolean",
+  NUMBER: "number",
+  OBJECT: "object",
+  STRING: "string",
+} as const;
 
 type LLMRequest = {
   model: string;
   prompt: string;
   schema?: JsonSchema;
   mimeType?: string;
-  openRouterModel?: string;
+  unifiedModel?: string;
 };
 
 type LLMProvider = {
@@ -18,8 +25,6 @@ type LLMProvider = {
   isAvailable: () => boolean;
   generate: (request: LLMRequest) => Promise<string>;
 };
-
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const parseEnvList = (value?: string) =>
   (value || "")
@@ -42,24 +47,31 @@ const collectNumberedKeys = (prefix: string): string[] => {
     .filter(Boolean);
 };
 
-const GEMINI_KEYS = [
+const UNIFIED_API_KEYS = [
   ...parseEnvList(
-    process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || process.env.API_KEY
+    process.env.UNIFIED_API_KEYS ||
+      process.env.UNIFIED_API_KEY ||
+      process.env.FREELLMAPI_API_KEYS ||
+      process.env.FREELLMAPI_API_KEY ||
+      process.env.OPENAI_API_KEY ||
+      process.env.API_KEY
   ),
-  ...collectNumberedKeys("GEMINI_API_KEY_"),
+  ...collectNumberedKeys("UNIFIED_API_KEY_"),
+  ...collectNumberedKeys("FREELLMAPI_API_KEY_"),
 ].filter(Boolean);
 
-const OPENROUTER_KEYS = [
-  ...(process.env.OPENROUTER_API_KEY ? [process.env.OPENROUTER_API_KEY] : []),
-  ...collectNumberedKeys("OPENROUTER_API_KEY_"),
-].filter(Boolean);
+const DEFAULT_UNIFIED_BASE_URL =
+  process.env.UNIFIED_BASE_URL ||
+  process.env.FREELLMAPI_BASE_URL ||
+  "https://freellmapi-vercel.onrender.com/v1";
+const DEFAULT_UNIFIED_MODEL =
+  process.env.UNIFIED_MODEL ||
+  process.env.FREELLMAPI_MODEL ||
+  "anthropic/claude-3.5-sonnet";
+let runtimeUnifiedModel = DEFAULT_UNIFIED_MODEL;
 
-const DEFAULT_OPENROUTER_MODEL =
-  process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct";
-let runtimeOpenRouterModel = DEFAULT_OPENROUTER_MODEL;
-
-export const setOpenRouterModel = (model: string) => {
-  runtimeOpenRouterModel = model?.trim() || DEFAULT_OPENROUTER_MODEL;
+export const setUnifiedModel = (model: string) => {
+  runtimeUnifiedModel = model?.trim() || DEFAULT_UNIFIED_MODEL;
 };
 
 let preferredEngine: 'auto' | 'ollama' = 'auto';
@@ -75,7 +87,7 @@ export const setOllamaConfig = (model?: string, baseUrl?: string) => {
 };
 
 const PROVIDER_ORDER =
-  parseEnvList(process.env.LLM_PROVIDER_ORDER) || ["gemini", "openrouter"];
+  parseEnvList(process.env.LLM_PROVIDER_ORDER) || ["unified"];
 
 const isQuotaLikeError = (error: any) =>
   error?.status === 429 ||
@@ -86,108 +98,15 @@ const isQuotaLikeError = (error: any) =>
   error?.status === 503 ||
   error?.code === 503;
 
-class GeminiProvider implements LLMProvider {
-  name = "gemini";
+class UnifiedProxyProvider implements LLMProvider {
+  name = "unified";
   private keys: string[];
   private keyIndex = 0;
-  private maxRetriesPerKey = 3;
+  private baseUrl: string;
 
-  constructor(keys: string[]) {
+  constructor(keys: string[], baseUrl: string) {
     this.keys = keys;
-  }
-
-  isAvailable = () => this.keys.length > 0;
-
-  private rotateKey() {
-    this.keyIndex = (this.keyIndex + 1) % this.keys.length;
-  }
-
-  private getCurrentClient() {
-    return new GoogleGenAI({ apiKey: this.keys[this.keyIndex] });
-  }
-
-  private async callWithRetry(request: LLMRequest) {
-    let lastError: any;
-    for (let attempt = 0; attempt < this.maxRetriesPerKey; attempt++) {
-      try {
-        const client = this.getCurrentClient();
-        const response = await client.models.generateContent({
-          model: request.model,
-          contents: request.prompt,
-          config: request.schema
-            ? {
-                responseMimeType: request.mimeType || "application/json",
-                responseSchema: request.schema,
-              }
-            : undefined,
-        });
-        return response.text || "";
-      } catch (error: any) {
-        lastError = error;
-        const retryable = isQuotaLikeError(error);
-        if (retryable && attempt < this.maxRetriesPerKey - 1) {
-          const waitTime = 2000 * Math.pow(2, attempt);
-          console.warn(
-            `[Gemini] quota/server issue, retrying in ${waitTime}ms (attempt ${
-              attempt + 1
-            }/${this.maxRetriesPerKey})...`,
-            error
-          );
-          await delay(waitTime);
-          continue;
-        }
-        throw error;
-      }
-    }
-    throw lastError;
-  }
-
-  generate = async (request: LLMRequest): Promise<string> => {
-    if (!this.isAvailable()) {
-      throw new Error("No Gemini API key configured.");
-    }
-
-    let tries = 0;
-    let lastError: any;
-
-    while (tries < this.keys.length) {
-      try {
-        const result = await this.callWithRetry(request);
-        if (!result) throw new Error("Empty response from Gemini");
-        return result;
-      } catch (error: any) {
-        lastError = error;
-        const shouldFailover = isQuotaLikeError(error);
-        console.warn(
-          `[Gemini] key #${this.keyIndex + 1}/${this.keys.length} error: ${
-            error?.message || error
-          }`
-        );
-
-        if (shouldFailover) {
-          this.rotateKey();
-          tries++;
-          console.info(
-            `[Gemini] switching to fallback key (${tries}/${this.keys.length})`
-          );
-          continue;
-        }
-        throw error;
-      }
-    }
-
-    throw lastError || new Error("All Gemini API keys exhausted.");
-  };
-}
-
-class OpenRouterProvider implements LLMProvider {
-  name = "openrouter";
-  private keys: string[];
-  private keyIndex = 0;
-  private baseUrl = "https://openrouter.ai/api/v1/chat/completions";
-
-  constructor(keys: string[]) {
-    this.keys = keys;
+    this.baseUrl = baseUrl.replace(/\/$/, "");
   }
 
   isAvailable = () => this.keys.length > 0;
@@ -202,7 +121,7 @@ class OpenRouterProvider implements LLMProvider {
 
   generate = async (request: LLMRequest): Promise<string> => {
     if (!this.isAvailable()) {
-      throw new Error("OpenRouter API key missing");
+      throw new Error("Unified API key missing");
     }
 
     let attempts = 0;
@@ -210,7 +129,7 @@ class OpenRouterProvider implements LLMProvider {
 
     while (attempts < this.keys.length) {
       try {
-        const modelToUse = request.openRouterModel || runtimeOpenRouterModel;
+        const modelToUse = request.unifiedModel || runtimeUnifiedModel || request.model;
 
         const messages = [
           {
@@ -231,7 +150,7 @@ ${
           },
         ];
 
-        const response = await fetch(this.baseUrl, {
+        const response = await fetch(`${this.baseUrl}/chat/completions`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -249,7 +168,7 @@ ${
         if (!response.ok) {
           const body = await response.text();
           throw new Error(
-            `OpenRouter error ${response.status}: ${response.statusText}. Body: ${body}`
+            `Unified provider error ${response.status}: ${response.statusText}. Body: ${body}`
           );
         }
 
@@ -260,20 +179,20 @@ ${
           "";
 
         if (!content) {
-          throw new Error("Empty response from OpenRouter");
+          throw new Error("Empty response from unified provider");
         }
         return content;
       } catch (error: any) {
         lastError = error;
         const failover = isQuotaLikeError(error);
         console.warn(
-          `[OpenRouter] key index ${this.keyIndex} failed: ${error?.message || error}`
+          `[Unified provider] key index ${this.keyIndex} failed: ${error?.message || error}`
         );
         if (failover && this.keys.length > 1) {
           this.rotateKey();
           attempts++;
           console.info(
-            `[OpenRouter] switching to fallback key (${attempts}/${this.keys.length})`
+            `[Unified provider] switching to fallback key (${attempts}/${this.keys.length})`
           );
           continue;
         }
@@ -281,31 +200,25 @@ ${
       }
     }
 
-    throw lastError || new Error("All OpenRouter keys exhausted.");
+    throw lastError || new Error("All unified API keys exhausted.");
   };
 }
 
 const buildProviderChain = (): LLMProvider[] => {
   const providers: LLMProvider[] = [];
-  const order = PROVIDER_ORDER.length ? PROVIDER_ORDER : ["gemini", "openrouter"];
+  const order = PROVIDER_ORDER.length ? PROVIDER_ORDER : ["unified"];
 
   order.forEach((entry) => {
-    if (entry === "gemini") {
-      const gemini = new GeminiProvider(GEMINI_KEYS);
-      if (gemini.isAvailable()) providers.push(gemini);
-    }
-    if (entry === "openrouter") {
-      const openrouter = new OpenRouterProvider(OPENROUTER_KEYS);
-      if (openrouter.isAvailable()) providers.push(openrouter);
+    if (entry === "unified" || entry === "freellmapi" || entry === "openai") {
+      const unified = new UnifiedProxyProvider(UNIFIED_API_KEYS, DEFAULT_UNIFIED_BASE_URL);
+      if (unified.isAvailable()) providers.push(unified);
     }
   });
 
   // Fallback order if env order misconfigured
   if (providers.length === 0) {
-    const gemini = new GeminiProvider(GEMINI_KEYS);
-    if (gemini.isAvailable()) providers.push(gemini);
-    const openrouter = new OpenRouterProvider(OPENROUTER_KEYS);
-    if (openrouter.isAvailable()) providers.push(openrouter);
+    const unified = new UnifiedProxyProvider(UNIFIED_API_KEYS, DEFAULT_UNIFIED_BASE_URL);
+    if (unified.isAvailable()) providers.push(unified);
   }
 
   return providers;
@@ -315,7 +228,7 @@ const generateContentWithFallback = async (request: LLMRequest): Promise<string>
   const providers = buildProviderChain();
   if (providers.length === 0) {
     throw new Error(
-      "No LLM providers configured. Please set GEMINI_API_KEYS or OPENROUTER_API_KEY."
+      "No LLM providers configured. Please set UNIFIED_API_KEY or FREELLMAPI_API_KEY."
     );
   }
 
@@ -399,7 +312,7 @@ export const checkRelevance = async (docContent: string, objective: string, lang
 
     try {
         const text = await generateContentWithFallback({
-          model: 'gemini-2.5-flash',
+          model: DEFAULT_UNIFIED_MODEL,
           prompt,
           schema,
           mimeType: "application/json",
@@ -618,7 +531,7 @@ export const analyzeDocument = async (docContent: string, language: Language): P
 
   try {
     const text = await generateContentWithFallback({
-      model: 'gemini-2.5-flash',
+      model: DEFAULT_UNIFIED_MODEL,
       prompt,
       schema: academicSchema,
       mimeType: "application/json",
@@ -687,7 +600,7 @@ export const analyzePolicyDocument = async (docContent: string, language: Langua
 
   try {
     const text = await generateContentWithFallback({
-      model: 'gemini-2.5-flash',
+      model: DEFAULT_UNIFIED_MODEL,
       prompt,
       schema: policySchema,
       mimeType: "application/json",
@@ -748,7 +661,7 @@ export const runBibliometricAnalysis = async (docs: Document[], objective: strin
 
   try {
     const text = await generateContentWithFallback({
-      model: 'gemini-2.5-flash',
+      model: DEFAULT_UNIFIED_MODEL,
       prompt,
       schema,
       mimeType: "application/json",
@@ -798,7 +711,7 @@ export const generateMatrixData = async (docs: Document[], columns: SynthesisMat
     };
     try {
         const text = await generateContentWithFallback({
-          model: 'gemini-2.5-flash',
+          model: DEFAULT_UNIFIED_MODEL,
           prompt,
           schema,
           mimeType: "application/json",
@@ -819,7 +732,7 @@ export const classifyDocument = async (doc: any, folders: ResearchFolder[], lang
     const schema: JsonSchema = { type: Type.OBJECT, properties: { folderIds: { type: Type.ARRAY, items: { type: Type.STRING } } }, required: ["folderIds"] };
     try {
         const text = await generateContentWithFallback({
-          model: 'gemini-2.5-flash',
+          model: DEFAULT_UNIFIED_MODEL,
           prompt,
           schema,
           mimeType: "application/json",
@@ -828,3 +741,4 @@ export const classifyDocument = async (doc: any, folders: ResearchFolder[], lang
         return JSON.parse(text).folderIds || [];
     } catch (error) { return []; }
 }
+

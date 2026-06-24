@@ -125,7 +125,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           {/* Footer */}
           <div className="p-4 border-t border-slate-800">
             <div className={`bg-slate-800/50 rounded-xl p-3 text-xs text-slate-500 text-center border border-slate-800 transition-all overflow-hidden ${isDesktopCollapsed ? 'opacity-0 h-0 p-0 border-0' : 'opacity-100 h-auto'}`}>
-              <p>Powered by <span className="text-blue-400 font-bold">Gemini 2.5</span></p>
+              <p>Powered by <span className="text-blue-400 font-bold">Unified API</span></p>
               <p className="mt-1 opacity-60">© 2024 Insight Scholar v2.0</p>
             </div>
           </div>
@@ -136,3 +136,4 @@ const Sidebar: React.FC<SidebarProps> = ({
 };
 
 export default Sidebar;
+

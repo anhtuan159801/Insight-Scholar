@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { Document, BibliometricData, Language } from '../types';
-import { runBibliometricAnalysis } from '../services/geminiService';
+import { runBibliometricAnalysis } from '../services/llmService';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { Loader2, Search, Lightbulb } from 'lucide-react';
 

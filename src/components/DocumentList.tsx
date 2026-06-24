@@ -126,7 +126,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                         onClick={() => setEngineMode('auto')}
                         className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-bold transition-all ${engineMode === 'auto' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'}`}
                     >
-                        {language === 'vi' ? 'Tự động (Gemini/OpenRouter)' : 'Auto (Gemini/OpenRouter)'}
+                        {language === 'vi' ? 'Tự động (Unified API)' : 'Auto (Unified API)'}
                     </button>
                     <button
                         onClick={() => setEngineMode('ollama')}
@@ -338,3 +338,4 @@ const DocumentList: React.FC<DocumentListProps> = ({
 };
 
 export default DocumentList;
+

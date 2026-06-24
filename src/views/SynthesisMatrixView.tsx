@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Download, Loader2, Plus, Trash2 } from 'lucide-react';
 import { Document, Language, SynthesisMatrixColumn } from '../types';
-import { generateMatrixData } from '../services/geminiService';
+import { generateMatrixData } from '../services/llmService';
 import {
   CORE_MATRIX_COLUMNS,
   MATRIX_GROUP_LABELS,
