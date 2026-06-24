@@ -81,3 +81,72 @@ setDocuments(docs => update(docs, result));
 ```
 
 The correct pattern gives one owner to the provider contract and prevents every UI/export consumer from inventing its own fallback behavior.
+
+## Scenario: Unified LLM Provider Proxy
+
+### 1. Scope / Trigger
+
+Apply this contract whenever the app changes LLM provider wiring, model selection, build-time env injection, or request/response parsing for document analysis. The provider boundary is external and untrusted even when the proxy is OpenAI-compatible.
+
+### 2. Signatures
+
+```ts
+setUnifiedModel(model: string): void
+generateContentWithFallback(request: {
+  model: string;
+  prompt: string;
+  schema?: unknown;
+  mimeType?: string;
+  unifiedModel?: string;
+}): Promise<string>
+```
+
+Runtime analysis functions call the shared LLM service only. UI, export, and projection code must not call provider endpoints directly.
+
+### 3. Contracts
+
+- Required env key: `UNIFIED_API_KEY` or `FREELLMAPI_API_KEY`.
+- Supported aliases: `UNIFIED_API_KEYS`, `FREELLMAPI_API_KEYS`, numbered `UNIFIED_API_KEY_#` / `FREELLMAPI_API_KEY_#`, and `OPENAI_API_KEY`.
+- Base URL defaults to `https://freellmapi-vercel.onrender.com/v1`; the service appends `/chat/completions`.
+- Model defaults to `anthropic/claude-3.5-sonnet`; UI/env can override via `UNIFIED_MODEL` or `FREELLMAPI_MODEL`.
+- Requests use OpenAI-compatible chat messages and request JSON-only output. Schema is passed as prompt guidance; it is not trusted as enforcement.
+- Responses are read from `choices[0].message.content`, then parsed and normalized by the existing analysis boundary.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+| --- | --- |
+| No unified key configured | Throw a clear provider configuration error |
+| HTTP response is not OK | Include provider status and response body in the thrown error |
+| Provider returns empty content | Throw an empty-response error |
+| Provider JSON is malformed | Surface parse failure and keep normalization as the single analysis contract owner |
+| Quota/server error with multiple keys | Rotate to the next configured key |
+
+### 5. Good / Base / Bad Cases
+
+- Good: `.env.local` sets `UNIFIED_API_KEY`, optional `UNIFIED_MODEL`, and all analysis calls go through `llmService`.
+- Base: `FREELLMAPI_API_KEY` alias is used with the default base URL and model.
+- Bad: committing a real key, calling provider fetches from components, or reintroducing provider-specific SDK parsing in UI code.
+
+### 6. Tests Required
+
+- Typecheck: service signatures and env access compile under Vite.
+- Unit: normalization tests still cover provider JSON as `unknown`.
+- Build: Vite production build proves build-time env replacement is valid.
+- E2E: fixture mode renders analysis without consuming real API quota.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+const response = await fetch(providerUrl, { body: JSON.stringify(prompt) });
+setDocuments(docs => update(docs, JSON.parse(await response.text())));
+```
+
+#### Correct
+
+```ts
+const text = await generateContentWithFallback({ model: DEFAULT_UNIFIED_MODEL, prompt, schema });
+const result = normalizeAcademicAnalysis(JSON.parse(text), language);
+```
