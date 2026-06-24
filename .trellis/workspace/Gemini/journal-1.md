@@ -70,3 +70,37 @@ Hoàn thành task paper-analysis-matrix: verified typecheck, 5 unit tests, build
 ### Next Steps
 
 - None - task complete
+
+
+## Session 3: Switch LLM provider to unified proxy
+
+**Date**: 2026-06-24
+**Task**: Switch LLM provider to unified proxy
+**Branch**: `main`
+
+### Summary
+
+Replaced Gemini/OpenRouter provider wiring with a unified OpenAI-compatible proxy, updated env/Docker/docs/UI references, removed the Google GenAI dependency, documented the provider boundary contract, and verified the full Insight Scholar quality gate.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `91a573e` | (see git log) |
+| `d62bed9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
